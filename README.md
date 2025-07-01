@@ -2,9 +2,18 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-# Softwares Needed
-To run the project you need to install Node.js (LTS version).
-For the first time you need to run the command "npm install", it will install all the package.json dependencies.
+# Steps to run the project
+-> To run the project you need to install Node.js (LTS version), python.
+-> After installing python you need to set "System Variable" "path" value. Add these 2 variables to "Path" : 
+  1) C:\Users\<your-user>\AppData\Local\Programs\Python\Python311\
+  2) C:\Users\<your-user>\AppData\Local\Programs\Python\Python311\Scripts\
+-> For the first time you need to run the command "npm install" in "frontend" folder only, it will install all the package.json dependencies.
+then run "npm start" to start the server.
+-> Go to "backend" folder in terminal and activate python virtual enviornment using command "venv\Scripts\activate"
+-> then in "backend" folder run command "pip install -r requirements.txt" to install flask.
+-> start backend using command "python run.py"
+-> in local browser execute URL "http://localhost:5000/api/" it sould show msg "Flask API is running!"
+  or in postman send POST http://localhost:5000/api/compare with two Files "tcFile" and "sapFile" as arguments.
 
 ## Available Scripts
 
