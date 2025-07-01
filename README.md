@@ -2,6 +2,10 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+# Softwares Needed
+To run the project you need to install Node.js (LTS version).
+Next for the first time run the command "npm install", it will install all the package.json dependencies.
+
 ## Available Scripts
 
 In the project directory, you can run:
