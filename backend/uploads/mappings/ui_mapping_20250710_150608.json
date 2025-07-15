@@ -1,0 +1,16 @@
+{
+  "mode": "ui",
+  "mappings": [
+    {
+      "tc": "id",
+      "sap": "part_number"
+    },
+    {
+      "tc": "quantity",
+      "sap": "sap_quantity"
+    }
+  ],
+  "active": false,
+  "created_at": "2025-07-10T15:06:08.188029",
+  "updated_at": "2025-07-10T17:08:35.689815"
+}

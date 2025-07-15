@@ -4,10 +4,13 @@ import { FaListUl, FaEquals, FaExchangeAlt, FaFingerprint } from 'react-icons/fa
 export default function SummaryCards({ results = [] }) {
   const total = results.length;
 
-  const matched = results.filter(r => r.status === 'Matched').length;
-  const differences = results.filter(r => r.status === 'Quantity Diff').length;
-  const tcOnly = results.filter(r => r.status === 'Only in TC' || r.status === 'TC Only').length;
-  const sapOnly = results.filter(r => r.status === 'Only in SAP' || r.status === 'SAP Only').length;
+  const getStatusCount = (label) =>
+    results.filter(r => (r.status || '').toLowerCase() === label.toLowerCase()).length;
+
+  const matched = getStatusCount('Matched');
+  const differences = getStatusCount('Quantity Diff');
+  const tcOnly = getStatusCount('TC Only');
+  const sapOnly = getStatusCount('SAP Only');
   const unique = tcOnly + sapOnly;
 
   const safePercent = (value) => {

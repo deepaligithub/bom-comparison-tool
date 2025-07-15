@@ -14,7 +14,6 @@ export default function ComparePage() {
   const sapInputRef = useRef(null);
   const { dispatch, state } = useContext(AppContext);
   const { tcFile: prevTcFile, sapFile: prevSapFile } = state;
-
   const [tcError, setTcError] = useState('');
   const [sapError, setSapError] = useState('');
   const [compareError, setCompareError] = useState(null);
