@@ -1,0 +1,43 @@
+{
+  "mode": "ui",
+  "mappings": [
+    {
+      "isKey": false,
+      "sap": "description",
+      "tc": "description"
+    },
+    {
+      "isKey": false,
+      "sap": "quantity",
+      "tc": "quantity"
+    },
+    {
+      "isKey": false,
+      "sap": "color",
+      "tc": "color"
+    },
+    {
+      "isKey": true,
+      "sap": "material number",
+      "tc": "part number"
+    },
+    {
+      "isKey": true,
+      "sap": "plant code",
+      "tc": "plant"
+    },
+    {
+      "isKey": false,
+      "sap": "revision level",
+      "tc": "revision"
+    },
+    {
+      "isKey": false,
+      "sap": "base unit",
+      "tc": "uom"
+    }
+  ],
+  "active": true,
+  "created_at": "2025-08-21T16:06:23.585670",
+  "updated_at": "2025-08-21T16:08:07.294120"
+}

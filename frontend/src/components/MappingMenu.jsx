@@ -7,7 +7,7 @@ export default function MappingMenu() {
     const [isOpen, setIsOpen] = useState(false);
     const location = useLocation();
 
-    const isActive = (path) => location.pathname === path;
+    const isActive = (path) => location.pathname.startsWith(path);
 
     const menuClass = (active) =>
         `flex items-center px-4 py-2 rounded transition-all font-medium text-sm ${active ? 'bg-blue-600 text-white' : 'text-blue-700 hover:bg-blue-100'
@@ -39,8 +39,15 @@ export default function MappingMenu() {
             </div>
 
             {/* Main Content */}
-            <main className="flex-1 p-4 bg-gray-50 overflow-auto">
-                <Outlet />
+            <main className="flex-1 bg-gray-50 overflow-auto">
+                <div className="border-b border-gray-300 px-4 py-3 bg-white shadow-sm">
+                    <h2 className="text-lg font-semibold text-blue-700">
+                        Mapping Manager
+                    </h2>
+                </div>
+                <div className="p-4">
+                    <Outlet />
+                </div>
             </main>
         </div>
     );

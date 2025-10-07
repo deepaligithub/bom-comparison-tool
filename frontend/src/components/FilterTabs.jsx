@@ -35,9 +35,8 @@ export default function FilterTabs({ currentFilter, counts, onChange }) {
         <button
           key={tab}
           onClick={() => onChange(tab)}
-          className={`${tabStyles.base} ${tabStyles[tab]} ${
-            currentFilter === tab ? tabStyles.active : ''
-          }`}
+          className={`${tabStyles.base} ${tabStyles[tab]} ${currentFilter === tab ? tabStyles.active : ''
+            }`}
         >
           {iconMap[tab]}
           {tab}

@@ -1,0 +1,43 @@
+{
+  "mode": "manual",
+  "mappings": [
+    {
+      "tc": "part number",
+      "sap": "material number",
+      "isKey": true
+    },
+    {
+      "tc": "plant",
+      "sap": "plant code",
+      "isKey": true
+    },
+    {
+      "tc": "revision",
+      "sap": "revision level",
+      "isKey": true
+    },
+    {
+      "tc": "tc quantity",
+      "sap": "sap quantity",
+      "isKey": false
+    },
+    {
+      "tc": "level",
+      "sap": "level",
+      "isKey": false
+    },
+    {
+      "tc": "col 7",
+      "sap": "col 7",
+      "isKey": false
+    },
+    {
+      "tc": "col 8",
+      "sap": "col 8",
+      "isKey": false
+    }
+  ],
+  "active": false,
+  "created_at": "2025-07-15T18:45:18.330489",
+  "updated_at": "2025-08-21T16:08:07.280949"
+}

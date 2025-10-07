@@ -44,7 +44,7 @@ export default function Navbar() {
       </div>
       <div className="space-x-2">
         {navLink('/compare', <><MdCompareArrows className="inline mr-1" /> BOM Comparison</>)}
-        {user?.role === 'admin' && navLink('/admin/mapping', <><MdOutlineSchema className="inline mr-1" /> Mapping Manager</>)}
+        {user?.role === 'admin' && navLink('/admin/mapping', <><MdOutlineSchema className="inline mr-1" /> Mapping Manager</>, true)}
         {user?.role === 'admin' && navLink('/users', 'Users')}
         <button
           onClick={handleLogout}

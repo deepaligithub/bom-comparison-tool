@@ -11,7 +11,7 @@ export const AppProvider = ({ children }) => {
 
   useEffect(() => {
     localStorage.setItem('appState', JSON.stringify(state));
-    console.log("📦 AppContext state updated:", state);
+    console.log("AppContext state updated:", state);
   }, [state]);
 
   return (

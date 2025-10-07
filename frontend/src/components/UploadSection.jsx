@@ -47,8 +47,8 @@ export default function UploadSection({
         <label htmlFor={`${source}-upload-input`}>
           <span
             className={`inline-block px-4 py-2 text-white text-sm rounded shadow cursor-pointer transition ${source === 'tc'
-                ? 'bg-blue-600 hover:bg-blue-700'
-                : 'bg-orange-600 hover:bg-orange-700'
+              ? 'bg-blue-600 hover:bg-blue-700'
+              : 'bg-orange-600 hover:bg-orange-700'
               }`}
           >
             Choose File

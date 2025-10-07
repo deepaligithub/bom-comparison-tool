@@ -11,7 +11,7 @@ export default function AddMappingPage() {
     const sapFileRef = useRef();
     const [tcColumns, setTcColumns] = useState([]);
     const [sapColumns, setSapColumns] = useState([]);
-    const [mappings, setMappings] = useState([{ tc: '', sap: '' }]);
+    const [mappings, setMappings] = useState([{ tc: '', sap: '', isKey: false }]);
     const [mode, setMode] = useState('ui');
     const [manualInput, setManualInput] = useState('');
     const [tcFileName, setTcFileName] = useState('');
@@ -27,7 +27,7 @@ export default function AddMappingPage() {
     const canAddRow = remainingTc.length > 0 && remainingSap.length > 0;
 
     const resetAll = () => {
-        setMappings([{ tc: '', sap: '' }]);
+        setMappings([{ tc: '', sap: '', isKey: false }]);
         setTcColumns([]);
         setSapColumns([]);
         setManualInput('');
@@ -53,7 +53,7 @@ export default function AddMappingPage() {
         if (!file) return;
 
         // Clear existing mappings on new upload
-        setMappings([{ tc: '', sap: '' }]);
+        setMappings([{ tc: '', sap: '', isKey: false }]);
 
         const reader = new FileReader();
 
@@ -213,7 +213,8 @@ export default function AddMappingPage() {
 
                 return {
                     tc: parts[0],
-                    sap: parts[1]
+                    sap: parts[1],
+                    isKey: false // admin will choose later via UI checkbox
                 };
             });
             // Check for duplicates
@@ -235,6 +236,22 @@ export default function AddMappingPage() {
         } catch (err) {
             Swal.fire('Error', err.message, 'error');
         }
+    };
+
+    const toggleIsKey = (index) => {
+        const updated = [...mappings];
+        const currentKeys = updated.filter(m => m.isKey).length;
+        const isCurrentlyKey = updated[index].isKey;
+
+        const tcField = updated[index].tc?.toLowerCase();
+
+        if (!isCurrentlyKey && currentKeys >= 3) {
+            Swal.fire('Only up to 3 key fields are allowed.', '', 'warning');
+            return;
+        }
+
+        updated[index].isKey = !isCurrentlyKey;
+        setMappings(updated);
     };
 
     const downloadManualMap = () => {
@@ -277,7 +294,7 @@ export default function AddMappingPage() {
         }
     };
 
-    const addMappingRow = () => setMappings([...mappings, { tc: '', sap: '' }]);
+    const addMappingRow = () => setMappings([...mappings, { tc: '', sap: '', isKey: false }]);
     const removeMappingRow = (index) => setMappings(mappings.filter((_, i) => i !== index));
 
 
@@ -394,6 +411,14 @@ export default function AddMappingPage() {
                         <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                             <FaPuzzlePiece className="text-indigo-500" /> Column Mappings
                         </h3>
+                        {/* 🔑 Key Summary */}
+                        <div className="text-sm text-gray-600 mb-3">
+                            <span className="font-semibold text-gray-800">Selected Key Fields:</span>{' '}
+                            {mappings
+                                .filter(m => m.isKey)
+                                .map(m => m.tc)
+                                .join(', ') || 'None selected'}
+                        </div>
                         {mappings.map((map, idx) => {
                             const selectedTc = mappings.map(m => m.tc).filter((v, i) => v && i !== idx);
                             const selectedSap = mappings.map(m => m.sap).filter((v, i) => v && i !== idx);
@@ -424,6 +449,15 @@ export default function AddMappingPage() {
                                             <option key={col} value={col}>{col}</option>
                                         ))}
                                     </select>
+
+                                    <label className="flex items-center gap-1 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={map.isKey || false}
+                                            onChange={() => toggleIsKey(idx)}
+                                        />
+                                        <span className="text-gray-600">Use as Key</span>
+                                    </label>
 
                                     <button onClick={() => removeMappingRow(idx)} className="text-red-500 hover:text-red-700 text-xl">
                                         <FaTrashAlt />
@@ -470,6 +504,7 @@ export default function AddMappingPage() {
                                     <li><code>part number,material id</code></li>
                                     <li><code>"part number","material id"</code></li>
                                     <li>Paste from Excel (tabs auto-convert to commas)</li>
+                                    <li>Select up to 3 key fields to be used as composite keys for comparison.</li>
                                 </ul>
                             </div>
                         </div>
@@ -538,12 +573,40 @@ export default function AddMappingPage() {
 
                     {mappings.length > 0 && (
                         <div className="border p-4 rounded bg-gray-50 text-sm">
-                            <h4 className="font-semibold mb-2">Parsed Mappings:</h4>
-                            <ul className="list-disc list-inside">
-                                {mappings.filter(m => m.tc && m.sap).map((m, i) => (
-                                    <li key={i}>{`"${m.tc}" -> "${m.sap}"`}</li>
-                                ))}
-                            </ul>
+                            <h4 className="font-semibold mb-3">Parsed Mappings (select key fields):</h4>
+                            <table className="w-full text-sm border">
+                                <thead className="bg-gray-200 text-left">
+                                    <tr>
+                                        <th className="px-3 py-1 border">TC Column</th>
+                                        <th className="px-3 py-1 border">SAP Column</th>
+                                        <th className="px-3 py-1 border text-center">Is Key</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {mappings.map((m, idx) => (
+                                        <tr key={idx}>
+                                            <td className="px-3 py-1 border">{m.tc}</td>
+                                            <td className="px-3 py-1 border">{m.sap}</td>
+                                            <td className="px-3 py-1 border text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={m.isKey || false}
+                                                    onChange={() => {
+                                                        const keyCount = mappings.filter(x => x.isKey).length;
+                                                        const newMappings = [...mappings];
+                                                        if (!newMappings[idx].isKey && keyCount >= 3) {
+                                                            Swal.fire('Only up to 3 key fields are allowed.', '', 'warning');
+                                                            return;
+                                                        }
+                                                        newMappings[idx].isKey = !newMappings[idx].isKey;
+                                                        setMappings(newMappings);
+                                                    }}
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     )}
                 </div>
