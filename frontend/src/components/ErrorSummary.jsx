@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FaChevronRight, FaChevronDown, FaExclamationTriangle, FaBan, FaExchangeAlt } from 'react-icons/fa';
+import { SIDE_A, SIDE_B } from '../config/sideConfig';
 
 const CollapsibleSection = ({ icon, title, data, renderRow, defaultOpen = false }) => {
     const [open, setOpen] = useState(defaultOpen);
@@ -59,10 +60,10 @@ export default function ErrorSummary({ skippedRows, invalidRows, missingMappings
                 renderRow={(row) => (
                     <div>
                         {row.tc_missing?.length > 0 && (
-                            <div><strong>Missing in TC File:</strong> {row.tc_missing.join(', ')}</div>
+                            <div><strong>Missing in {SIDE_A.label}:</strong> {row.tc_missing.join(', ')}</div>
                         )}
                         {row.sap_missing?.length > 0 && (
-                            <div><strong>Missing in SAP File:</strong> {row.sap_missing.join(', ')}</div>
+                            <div><strong>Missing in {SIDE_B.label}:</strong> {row.sap_missing.join(', ')}</div>
                         )}
                     </div>
                 )}

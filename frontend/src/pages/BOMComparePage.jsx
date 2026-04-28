@@ -1,15 +1,78 @@
 // BOMComparePage.jsx
-import React, { useMemo, useRef, useState } from "react";
-import axios from "axios";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import apiClient from "../api/client";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
     FaCheckCircle,   // Matched
     FaTimesCircle,   // Different / Qty Mismatch
-    FaCubes,         // TC Only
+    FaCubes,         // TC Only = only in Source BOM (first file)
     FaBoxes          // SAP Only  (FA5; good substitute for BoxesStacked)
 } from 'react-icons/fa';
+import { useFeatures } from "../hooks/useFeatures";
+import UpgradePrompt from "../components/UpgradePrompt";
+import { STATUS_DISPLAY_LABELS, SIDE_A, SIDE_B } from "../config/sideConfig";
+import { appConfig } from "../config/appConfig";
+import { buildDynamicMapping } from "../utils/dynamicMapping";
+import { toastSuccess, toastError } from "../utils/toast";
 
+/** Display name for a column key: "Source BOM - x" / "Target BOM - x" instead of BOM_A_ / BOM_B_ */
+function columnDisplayName(colKey) {
+    if (!colKey || typeof colKey !== "string") return colKey;
+    if (colKey.startsWith("BOM_A_")) return `${SIDE_A.label} - ${colKey.replace(/^BOM_A_/, "")}`;
+    if (colKey.startsWith("BOM_B_")) return `${SIDE_B.label} - ${colKey.replace(/^BOM_B_/, "")}`;
+    return colKey;
+}
+
+/** Get column names from a BOM file (CSV, JSON, XLSX). PLMXML not supported in browser. */
+function getHeadersFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const name = (file?.name || "").toLowerCase();
+        if (name.endsWith(".csv")) {
+            Papa.parse(file, {
+                header: true,
+                preview: 1,
+                complete: (res) => {
+                    const row = res.data?.[0];
+                    resolve(row ? Object.keys(row) : []);
+                },
+                error: () => resolve([]),
+            });
+        } else if (name.endsWith(".json")) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const data = JSON.parse(reader.result);
+                    const first = Array.isArray(data) ? data[0] : data;
+                    resolve(first && typeof first === "object" ? Object.keys(first) : []);
+                } catch {
+                    resolve([]);
+                }
+            };
+            reader.onerror = () => resolve([]);
+            reader.readAsText(file);
+        } else if (name.endsWith(".xlsx")) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+                    const sheet = wb.Sheets[wb.SheetNames[0]];
+                    const row = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0];
+                    resolve(Array.isArray(row) ? row.map(String) : []);
+                } catch {
+                    resolve([]);
+                }
+            };
+            reader.onerror = () => resolve([]);
+            reader.readAsArrayBuffer(file);
+        } else {
+            resolve([]);
+        }
+    });
+}
 
 /* ===================== Ignored Popover + helpers (added) ===================== */
 
@@ -26,20 +89,20 @@ function RowDetailsModal({ row, columns, onClose }) {
         if (s !== "" && Number.isFinite(n) && !Number.isNaN(n)) return { n, s, isNum: true };
         return { s: s.toLowerCase(), raw: s, isNum: false };
     };
-    function equalish(a, b) {
+    const equalish = React.useCallback((a, b) => {
         if (isNA(a) && isNA(b)) return true;
         const A = norm(a), B = norm(b);
         if (A.isNum && B.isNum) return A.n === B.n;
         return (A.s || "") === (B.s || "");
-    }
-    // build paired columns in mapped order (TC_*, SAP_*)
+    }, []);
+    // build paired columns in mapped order (BOM_A_*, BOM_B_*)
     const pairs = React.useMemo(() => {
         const out = [];
         for (let i = 0; i < columns.length - 1; i += 2) {
             const tc = columns[i];
             const sap = columns[i + 1];
-            if (!tc?.startsWith("TC_") || !sap?.startsWith("SAP_")) continue;
-            const label = `${tc.replace(/^TC_/, "")} / ${sap.replace(/^SAP_/, "")}`;
+            if (!tc?.startsWith("BOM_A_") || !sap?.startsWith("BOM_B_")) continue;
+            const label = `${tc.replace(/^BOM_A_/, "")} / ${sap.replace(/^BOM_B_/, "")}`;
             out.push({ label, tc, sap });
         }
         return out;
@@ -72,12 +135,12 @@ function RowDetailsModal({ row, columns, onClose }) {
 
     const get = (name) => row[name] ?? "";
 
-    const partTC = get("TC_part number");
-    const partSAP = get("SAP_material number");
-    const plantTC = get("TC_plant");
-    const plantSAP = get("SAP_plant code");
-    const revTC = get("TC_revision");
-    const revSAP = get("SAP_revision level");
+    const partTC = get("BOM_A_part number");
+    const partSAP = get("BOM_B_material number");
+    const plantTC = get("BOM_A_plant");
+    const plantSAP = get("BOM_B_plant code");
+    const revTC = get("BOM_A_revision");
+    const revSAP = get("BOM_B_revision level");
 
     const status = String(row.status || "");
     const statusBg =
@@ -123,7 +186,7 @@ function RowDetailsModal({ row, columns, onClose }) {
                         padding: "4px 10px", borderRadius: 999, background: statusBg, color: statusFg,
                         fontWeight: 700, fontSize: 12
                     }}>
-                        {status}{status === "Different" ? ` • ${diffCount} differences` : ""}
+                        {STATUS_DISPLAY_LABELS[status] ?? status}{status === "Different" ? ` • ${diffCount} differences` : ""}
                     </div>
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                         <button
@@ -152,9 +215,9 @@ function RowDetailsModal({ row, columns, onClose }) {
                     <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 13 }}>
                         <thead>
                             <tr style={{ background: "#fafafa" }}>
-                                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee", width: 260 }}>Field [TC / SAP]</th>
-                                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee" }}>TC</th>
-                                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee" }}>SAP</th>
+                                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee", width: 260 }}>Field [{SIDE_A.label} / {SIDE_B.label}]</th>
+                                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee" }}>{SIDE_A.label}</th>
+                                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #eee" }}>{SIDE_B.label}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -183,8 +246,8 @@ function RowDetailsModal({ row, columns, onClose }) {
 
 // tiny badges/chips for the popover
 function SourceBadge({ source }) {
-    const bg = source === "SAP" ? "#e1f5f9" : "#efe6ff";
-    const fg = source === "SAP" ? "#006b7e" : "#4b2bb5";
+    const bg = source === SIDE_B.label ? "#e1f5f9" : "#efe6ff";
+    const fg = source === SIDE_B.label ? "#006b7e" : "#4b2bb5";
     return (
         <span style={{
             display: "inline-block", padding: "2px 8px", borderRadius: 999,
@@ -312,17 +375,17 @@ function IgnoredPopover({ open, onClose, duplicates, skippedRows, skippedColumns
         sapMsgs.forEach((msg, i) => {
             const m = msg.match(reSAP);
             const e = msg.match(reSAPExtra);
-            if (m) add("SAP", m[1], m[2] || "", m[3] || "", reasonFrom(msg), sapRows[i] || null);
-            else if (e) add("SAP", e[1], "", "", "Extra row", sapRows[i] || null);
-            else add("SAP", "", "", "", reasonFrom(msg), sapRows[i] || null);
+            if (m) add(SIDE_B.label, m[1], m[2] || "", m[3] || "", reasonFrom(msg), sapRows[i] || null);
+            else if (e) add(SIDE_B.label, e[1], "", "", "Extra row", sapRows[i] || null);
+            else add(SIDE_B.label, "", "", "", reasonFrom(msg), sapRows[i] || null);
         });
 
         tcMsgs.forEach((msg, i) => {
             const m = msg.match(reTC);
             const e = msg.match(reTCExtra);
-            if (m) add("TC", m[1], m[2] || "", m[3] || "", reasonFrom(msg), tcRows[i] || null);
-            else if (e) add("TC", e[1], "", "", "Extra row", tcRows[i] || null);
-            else add("TC", "", "", "", reasonFrom(msg), tcRows[i] || null);
+            if (m) add(SIDE_A.label, m[1], m[2] || "", m[3] || "", reasonFrom(msg), tcRows[i] || null);
+            else if (e) add(SIDE_A.label, e[1], "", "", "Extra row", tcRows[i] || null);
+            else add(SIDE_A.label, "", "", "", reasonFrom(msg), tcRows[i] || null);
         });
 
         return items;
@@ -428,6 +491,7 @@ function IgnoredPopover({ open, onClose, duplicates, skippedRows, skippedColumns
         });
         return arr;
     };
+    
 
     const paginate = (rows, page, size) => {
         const total = Math.max(1, Math.ceil(rows.length / size));
@@ -526,7 +590,7 @@ function IgnoredPopover({ open, onClose, duplicates, skippedRows, skippedColumns
                             style={ig.select}
                             title="Filter by source"
                         >
-                            {["All", "TC", "SAP"].map(s => <option key={s} value={s}>{s}</option>)}
+                            {["All", SIDE_A.label, SIDE_B.label].map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                         <button
                             onClick={() => {
@@ -737,7 +801,11 @@ function IgnoredPopover({ open, onClose, duplicates, skippedRows, skippedColumns
                                 <div style={ig.empty}>No extra columns were ignored.</div>
                             ) : (
                                 <ul style={{ margin: 0, paddingLeft: 18 }}>
-                                    {skippedColsList.map(c => <li key={c} style={{ margin: "4px 0" }}>- {c}</li>)}
+                                    {skippedColsList.map(c => (
+                                        <li key={c} style={{ margin: "4px 0" }}>
+                                            - {columnDisplayName(c)}
+                                        </li>
+                                    ))}
                                 </ul>
                             )}
                             <div
@@ -861,17 +929,29 @@ function RawRowModal({ row, onClose }) {
 
 /* ===================== End Ignored Popover + helpers ===================== */
 
-const PAGE_SIZES = [5, 10, 15];
+const PAGE_SIZES = [10, 25, 50, 100, 250];
 const NA = "N/A";
 
 export default function BOMComparePage() {
+    const { canExport } = useFeatures();
+    const [upgradePromptOpen, setUpgradePromptOpen] = useState(false);
+
     // file inputs
     const tcRef = useRef(null);
     const sapRef = useRef(null);
+    /** Scroll target so results are visible after compare completes */
+    const resultsRef = useRef(null);
+    /** Ref for keyboard shortcut so handler always sees latest state */
+    const compareStateRef = useRef({ tcFile: null, sapFile: null, loading: false, onCompare: null });
 
     // uploads
     const [tcFile, setTcFile] = useState(null);
     const [sapFile, setSapFile] = useState(null);
+
+    /** When true, do not send inline mapping; backend uses the active saved mapping (preset) from Mapping Manager. */
+    const [useSavedMappingPreset, setUseSavedMappingPreset] = useState(false);
+    /** Name of the active mapping preset (when "Use saved preset" is on); from GET /api/mappings. */
+    const [activePresetName, setActivePresetName] = useState(null);
 
     // api/ui state
     const [loading, setLoading] = useState(false);
@@ -891,7 +971,7 @@ export default function BOMComparePage() {
     // table UX controls
     const [statusFilter, setStatusFilter] = useState("All"); // All | Matched | Different | TC Only | SAP Only
     const [search, setSearch] = useState("");
-    const [pageSize, setPageSize] = useState(10);
+    const [pageSize, setPageSize] = useState(25);
     const [page, setPage] = useState(1);
 
     // modal
@@ -914,6 +994,9 @@ export default function BOMComparePage() {
     const [ignoredOpen, setIgnoredOpen] = useState(false);
     const ignoredBtnRef = useRef(null);
 
+    /** 'csv' | 'pdf' when export is in progress; shows "Preparing…" on the button */
+    const [exportInProgress, setExportInProgress] = useState(null);
+
     // Accepted file types + size cap
     const tcAcceptedTypes = ['.csv', '.xlsx', '.json', '.plmxml'];
     const sapAcceptedTypes = ['.csv', '.xlsx', '.json'];
@@ -926,6 +1009,38 @@ export default function BOMComparePage() {
     };
     const [tcStatus, setTcStatus] = useState({ ok: false, msg: "" });
     const [sapStatus, setSapStatus] = useState({ ok: false, msg: "" });
+
+    // When "Use saved preset" is on, fetch active mapping name for display
+    useEffect(() => {
+        if (!useSavedMappingPreset) {
+            setActivePresetName(null);
+            return;
+        }
+        let cancelled = false;
+        apiClient.get("/api/mappings")
+            .then((res) => {
+                if (cancelled) return;
+                const list = Array.isArray(res.data) ? res.data : [];
+                const active = list.find((m) => m.active);
+                setActivePresetName(active ? active.filename : null);
+            })
+            .catch(() => {
+                if (!cancelled) setActivePresetName(null);
+            });
+        return () => { cancelled = true; };
+    }, [useSavedMappingPreset]);
+
+    // Ctrl+Enter to run compare when both files are selected
+    useEffect(() => {
+        const handler = (e) => {
+            if (e.key !== "Enter" || !e.ctrlKey) return;
+            if (e.target.closest("input, textarea, select, [contenteditable=\"true\"]")) return;
+            const { tcFile: f1, sapFile: f2, loading: ld, onCompare: run } = compareStateRef.current;
+            if (f1 && f2 && !ld && typeof run === "function") run();
+        };
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+    }, []);
 
     function validateFile(file, accepted) {
         if (!file) return { ok: false, msg: "" };
@@ -1054,85 +1169,135 @@ export default function BOMComparePage() {
         return { empty: false, val: s.toLowerCase(), num: false };
     }
 
+    // Apply compare API response to state (shared by onCompare and onDemo)
+    function applyCompareResponse(data) {
+        const colsFromServer = Array.isArray(data.columns) ? data.columns.map(String) : [];
+        const dataCols = colsFromServer.filter((c) => c !== "status");
+        setColumns(colsFromServer);
+        const vis = {};
+        dataCols.forEach((c) => (vis[c] = true));
+        setVisibleCols(vis);
+        const buckets = [
+            ...(data.matched || []),
+            ...(data.different || []),
+            ...(data.tc_only || []),
+            ...(data.sap_only || []),
+        ];
+        const normalized = buckets.map((r) => {
+            const out = {};
+            for (const c of dataCols) {
+                out[c] = sanitizeCell(Object.prototype.hasOwnProperty.call(r, c) ? r[c] : NA);
+            }
+            out.status = sanitizeCell(r.status || "Unknown");
+            return out;
+        });
+        setRows(normalized);
+        setPage(1);
+        setSkippedRows(data.skipped_rows || []);
+        setSkippedColumns(data.skipped_columns || null);
+        setIgnoredSummary(data.ignored_summary || null);
+        setLogFilename(data.logFilename || "");
+        const summary = {
+            matched: (data.matched || []).length,
+            different: (data.different || []).length,
+            tc_only: (data.tc_only || []).length,
+            sap_only: (data.sap_only || []).length,
+            total:
+                (data.matched || []).length +
+                (data.different || []).length +
+                (data.tc_only || []).length +
+                (data.sap_only || []).length,
+        };
+        setCounts(summary);
+        try {
+            localStorage.setItem("bom_last_compare", JSON.stringify({ at: new Date().toISOString(), summary }));
+        } catch (_) { /* ignore */ }
+        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    }
+
+    // ----------------------------------------------------
+    // Demo: run compare with built-in sample files (no upload)
+    // ----------------------------------------------------
+    async function onDemo() {
+        try {
+            setError("");
+            setLoading(true);
+            const { data } = await apiClient.post("/api/demo");
+            applyCompareResponse(data);
+            toastSuccess("Demo complete");
+        } catch (e) {
+            console.error("[UI] demo failed:", e);
+            const msg = e?.response?.data?.message || e?.response?.data?.error || e.message || "Demo failed.";
+            setError(msg);
+            toastError(msg);
+        } finally {
+            setLoading(false);
+        }
+    }
+
     // ----------------------------------------------------
     // Compare (POST /api/compare2 with tc_bom & sap_bom)
     // ----------------------------------------------------
     async function onCompare() {
         try {
             setError("");
-            // validate uploads
             if (!tcFile || !sapFile) {
-                setError("Please upload both Teamcenter and SAP BOM files.");
+                setError(`Please upload both ${SIDE_A.label} and ${SIDE_B.label} files.`);
                 return;
             }
             setLoading(true);
 
             const fd = new FormData();
-            fd.append("tc_bom", tcFile);
-            fd.append("sap_bom", sapFile);
+            fd.append("bom_a", tcFile);
+            fd.append("bom_b", sapFile);
 
-            console.log("[UI] POST /api/compare2", { tc: tcFile?.name, sap: sapFile?.name });
-            const { data } = await axios.post("/api/compare2", fd, {
+            if (useSavedMappingPreset) {
+                // Backend will load active mapping from disk
+            } else {
+                let mappingsToSend = null;
+                try {
+                    const listRes = await apiClient.get("/api/mappings");
+                    const list = Array.isArray(listRes.data) ? listRes.data : [];
+                    const active = list.find((m) => m.active);
+                    if (active?.filename) {
+                        const loadRes = await apiClient.get(`/api/load-mapping/${encodeURIComponent(active.filename)}`);
+                        const content = loadRes.data;
+                        const mappings = content?.mappings;
+                        if (Array.isArray(mappings) && mappings.length > 0) mappingsToSend = mappings;
+                    }
+                } catch (_) { /* ignore */ }
+                if (!mappingsToSend) {
+                    const colsA = await getHeadersFromFile(tcFile);
+                    const colsB = await getHeadersFromFile(sapFile);
+                    mappingsToSend = buildDynamicMapping(colsA, colsB);
+                }
+                if (mappingsToSend?.length) fd.append("mappings", JSON.stringify(mappingsToSend));
+            }
+
+            const { data } = await apiClient.post("/api/compare2", fd, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
-            console.log("[UI] /api/compare2 →", data);
-            console.log("[UI] /api/compare2 → ignored_summary", data?.ignored_summary);
-            console.log("[UI] /api/compare2 → duplicates", data?.ignored_summary?.duplicates);
-
-            // 1) columns straight from server
-            const colsFromServer = Array.isArray(data.columns) ? data.columns.map(String) : [];
-            const dataCols = colsFromServer.filter((c) => c !== "status");
-
-            setColumns(colsFromServer);
-            const vis = {};
-            dataCols.forEach((c) => (vis[c] = true));
-            setVisibleCols(vis);
-
-            // 2) flatten buckets and normalize
-            const buckets = [
-                ...(data.matched || []),
-                ...(data.different || []),
-                ...(data.tc_only || []),
-                ...(data.sap_only || []),
-            ];
-
-            const normalized = buckets.map((r) => {
-                const out = {};
-                for (const c of dataCols) {
-                    out[c] = sanitizeCell(Object.prototype.hasOwnProperty.call(r, c) ? r[c] : NA);
-                }
-                out.status = sanitizeCell(r.status || "Unknown");
-                return out;
-            });
-
-            setRows(normalized);
-            setPage(1);
-            // ignored/skipped/meta
-            setSkippedRows(data.skipped_rows || []);
-            setSkippedColumns(data.skipped_columns || null);
-            setIgnoredSummary(data.ignored_summary || null);
-            setLogFilename(data.logFilename || "");
-
-            setCounts({
-                matched: (data.matched || []).length,
-                different: (data.different || []).length,
-                tc_only: (data.tc_only || []).length,
-                sap_only: (data.sap_only || []).length,
-                total:
-                    (data.matched || []).length +
-                    (data.different || []).length +
-                    (data.tc_only || []).length +
-                    (data.sap_only || []).length,
-            });
-
+            applyCompareResponse(data);
+            toastSuccess("Comparison complete");
         } catch (e) {
             console.error("[UI] compare2 failed:", e);
-            console.error("[UI] server said:", e?.response?.data);
-            setError(e?.response?.data?.message || e.message || "Compare failed");
+            const isNetworkError = !e.response && (e.message === "Network Error" || e.code === "ERR_NETWORK");
+            const msg = e?.response?.data?.message || e?.response?.data?.error || e.message || "Validation failed";
+            const isNoActiveMapping = useSavedMappingPreset && /no active mapping|active mapping file found/i.test(String(msg));
+            const displayMsg = isNetworkError ? "Check your connection and try again." : isNoActiveMapping
+                ? "No saved mapping preset is active. Create one in Mapping Manager and set it as active, or turn off \"Use saved mapping preset\"."
+                : msg;
+            setError(displayMsg);
+            toastError(displayMsg);
         } finally {
             setLoading(false);
         }
     }
+
+    // Keep ref updated for Ctrl+Enter shortcut
+    useEffect(() => {
+        compareStateRef.current = { tcFile, sapFile, loading, onCompare };
+    });
 
     // derive ignored count
     const ignoredCount = useMemo(() => {
@@ -1171,15 +1336,13 @@ export default function BOMComparePage() {
         arr.sort((a, b) => {
             const A = normalizeForSort(a[col]);
             const B = normalizeForSort(b[col]);
+            const dirMul = dir; // dir is 1 or -1
 
             if (A.empty && B.empty) return 0;
-            if (A.empty) return 1;
-            if (B.empty) return -1;
-
-            if (A.num && B.num) {
-                return (A.val - B.val) * dir;
-            }
-            return A.val.localeCompare(B.val) * dir;
+            if (A.empty) return 1 * dirMul;
+            if (B.empty) return -1 * dirMul;
+            if (A.num && B.num) return (A.val - B.val) * dirMul;
+            return String(A.val).localeCompare(String(B.val), undefined, { numeric: true, sensitivity: "base" }) * dirMul;
         });
         return arr;
     }, [filteredRows, sort]);
@@ -1192,19 +1355,25 @@ export default function BOMComparePage() {
 
     function exportPdf() {
         if (!rows.length) return;
-        const doc = new jsPDF({ orientation: "landscape" });
-        const visible = dataColumns.filter((c) => visibleCols[c]);
-        const head = [[...visible, "status"]];
-        const body = filteredRows.map((r) => [...visible.map((c) => sanitizeCell(r[c])), sanitizeCell(r.status)]);
-        doc.text("BOM Compare Report", 14, 12);
-        autoTable(doc, { head, body, startY: 16, styles: { fontSize: 6 } });
-        doc.save("bom-compare-report.pdf");
+        setExportInProgress("pdf");
+        try {
+            const doc = new jsPDF({ orientation: "landscape" });
+            const visible = dataColumns.filter((c) => visibleCols[c]);
+            const head = [[...visible, "status"]];
+            const body = filteredRows.map((r) => [...visible.map((c) => sanitizeCell(r[c])), sanitizeCell(STATUS_DISPLAY_LABELS[r.status] ?? r.status)]);
+            doc.text("BOM Validatiion Report", 14, 12);
+            autoTable(doc, { head, body, startY: 16, styles: { fontSize: 6 } });
+            doc.save("bom-validation-report.pdf");
+            toastSuccess("PDF downloaded");
+        } finally {
+            setTimeout(() => setExportInProgress(null), 200);
+        }
     }
 
     async function downloadLog() {
         try {
             if (!logFilename) return;
-            const res = await axios.get(`/api/download-log/${encodeURIComponent(logFilename)}`, {
+            const res = await apiClient.get(`/api/download-log/${encodeURIComponent(logFilename)}`, {
                 responseType: "blob",
             });
             const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -1221,31 +1390,37 @@ export default function BOMComparePage() {
     }
     function exportCsvMain() {
         if (!rows.length) return;
-        const visible = dataColumns.filter((c) => visibleCols[c]);
+        setExportInProgress("csv");
+        try {
+            const visible = dataColumns.filter((c) => visibleCols[c]);
 
-        function csvEscape(x) {
-            const s = String(x == null ? "" : x);
-            return '"' + s.replace(/"/g, '""') + '"';
+            function csvEscape(x) {
+                const s = String(x == null ? "" : x);
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+
+            const headerLabels = [...visible.map((c) => columnDisplayName(c)), "Status"];
+            const lines = [headerLabels.map((h) => (h.includes(",") ? `"${h}"` : h)).join(",")];
+
+            for (const r of filteredRows) {
+                const row = [
+                    ...visible.map((c) => csvEscape(r[c])),
+                    csvEscape(STATUS_DISPLAY_LABELS[r.status] ?? r.status),
+                ];
+                lines.push(row.join(","));
+            }
+
+            const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "bom-validation-report.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+            toastSuccess("CSV downloaded");
+        } finally {
+            setTimeout(() => setExportInProgress(null), 200);
         }
-
-        const headers = [...visible, "status"];
-        const lines = [headers.join(",")];
-
-        for (const r of filteredRows) {
-            const row = [
-                ...visible.map((c) => csvEscape(r[c])),
-                csvEscape(r.status),
-            ];
-            lines.push(row.join(","));
-        }
-
-        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "bom-compare.csv";
-        a.click();
-        URL.revokeObjectURL(url);
     }
 
     function ColumnsPopover({
@@ -1282,7 +1457,7 @@ export default function BOMComparePage() {
                 const tc = cols[i];
                 const sap = cols[i + 1];
                 if (!tc || !sap) break;
-                if (!tc.startsWith("TC_") || !sap.startsWith("SAP_")) continue;
+                if (!tc.startsWith("BOM_A_") || !sap.startsWith("BOM_B_")) continue;
                 out.push({ tc, sap });
             }
             return out;
@@ -1300,8 +1475,8 @@ export default function BOMComparePage() {
 
             const set = new Set();
             pairs.forEach(p => {
-                const baseTc = p.tc.replace(/^TC_/, "");
-                const baseSap = p.sap.replace(/^SAP_/, "");
+                const baseTc = p.tc.replace(/^BOM_A_/, "");
+                const baseSap = p.sap.replace(/^BOM_B_/, "");
                 if (isLikelyKey(baseTc) || isLikelyKey(baseSap)) {
                     set.add(p.tc + "||" + p.sap);
                 }
@@ -1435,7 +1610,7 @@ export default function BOMComparePage() {
                 </div>
 
                 <div style={colPop.list}>
-                    <div style={colPop.groupTitle}>TC | SAP pairs</div>
+                    <div style={colPop.groupTitle}>{SIDE_A.label} | {SIDE_B.label} pairs</div>
                     {filteredPairs.map((p) => {
                         const pinned = isPinned(p);
                         return (
@@ -1447,7 +1622,7 @@ export default function BOMComparePage() {
                                         checked={!!visibleCols[p.tc]}
                                         onChange={(e) => setVisibleCols(prev => ({ ...prev, [p.tc]: e.target.checked }))}
                                     />
-                                    <span style={colPop.name}>{p.tc}</span>
+                                    <span style={colPop.name}>{columnDisplayName(p.tc)}</span>
                                 </label>
                                 <label style={colPop.label}>
                                     <input
@@ -1455,7 +1630,7 @@ export default function BOMComparePage() {
                                         checked={!!visibleCols[p.sap]}
                                         onChange={(e) => setVisibleCols(prev => ({ ...prev, [p.sap]: e.target.checked }))}
                                     />
-                                    <span style={colPop.name}>{p.sap}</span>
+                                    <span style={colPop.name}>{columnDisplayName(p.sap)}</span>
                                 </label>
                                 {!pinned && (
                                     <button
@@ -1563,13 +1738,24 @@ export default function BOMComparePage() {
     // UI
     return (
         <div style={wrap}>
-            <h1 style={{ marginBottom: 8 }}><b>Teamcenter ↔ SAP BOM Compare</b></h1>
+            <header style={{ marginBottom: 24 }}>
+                <Link to="/" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#64748b", marginBottom: 12, textDecoration: "none", fontWeight: 500 }} className="hover:text-slate-900" aria-label="Back to Home">
+                    ← Back to Home
+                </Link>
+                <h1 style={{ fontSize: 24, fontWeight: 700, color: "#0f172a", marginBottom: 4, letterSpacing: "-0.02em" }}>{SIDE_A.label} ↔ {SIDE_B.label} Compare</h1>
+                <p style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }} aria-hidden="false">
+                    PLM to PLM · PLM to ERP · ERP to ERP — any BOM compare
+                </p>
+                <div style={{ padding: "12px 16px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#475569" }}>
+                    Try the app with sample data: click <strong>Run demo</strong> (no upload needed). For mappings and presets, see the{" "}
+                    <Link to="/help" style={{ fontWeight: 600, color: "#0f766e", textDecoration: "none" }}>User Guide</Link>.
+                </div>
+            </header>
 
             {/* Upload cards */}
             <div style={row}>
                 <div style={card}>
-                    <div style={cardTitle}>Teamcenter BOM</div>
-                    {/* Teamcenter */}
+                    <div style={cardTitle}>Upload {SIDE_A.label}</div>
                     <input
                         ref={tcRef}
                         type="file"
@@ -1588,9 +1774,8 @@ export default function BOMComparePage() {
                     </div>
                 </div>
 
-                {/* SAP */}
                 <div style={card}>
-                    <div style={cardTitle}>SAP BOM</div>
+                    <div style={cardTitle}>Upload {SIDE_B.label}</div>
                     <input
                         ref={sapRef}
                         type="file"
@@ -1610,16 +1795,37 @@ export default function BOMComparePage() {
                 </div>
             </div>
 
-            {/* Actions */}
-            <div style={{ ...row, alignItems: "center" }}>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={onCompare} disabled={loading || !tcFile || !sapFile} style={btnGreen}>
-                        {loading ? "Comparing..." : "Compare"}
+            {/* Actions toolbar */}
+            <div style={{ ...row, alignItems: "center", padding: "16px 0", borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0" }}>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: "#475569" }} title="Use the active mapping from Mapping Manager.">
+                        <input type="checkbox" checked={useSavedMappingPreset} onChange={(e) => setUseSavedMappingPreset(e.target.checked)} aria-describedby="preset-desc" />
+                        <span id="preset-desc">Use saved mapping preset</span>
+                    </label>
+                    {useSavedMappingPreset && (
+                        <span style={{ fontSize: 12, color: activePresetName ? "#0f766e" : "#b45309", fontWeight: 500 }}>
+                            {activePresetName ? `Active: ${activePresetName}` : "No active preset"}
+                        </span>
+                    )}
+                    <button
+                        onClick={onCompare}
+                        disabled={loading || !tcFile || !sapFile}
+                        style={btnGreen}
+                        title="Compare the two BOMs (Ctrl+Enter)"
+                    >
+                        {loading ? "Comparing…" : "Validate BOMs"}
+                    </button>
+                    <button
+                        onClick={onDemo}
+                        disabled={loading}
+                        style={{ ...btn, borderColor: "#0d9488", color: "#0d9488" }}
+                        title="Run a comparison with built-in sample files (no upload needed)"
+                    >
+                        Run demo
                     </button>
                     <button onClick={resetAll} style={btn}>Reset</button>
                 </div>
-
-                <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
                     <button
                         ref={ignoredBtnRef}
                         type="button"
@@ -1629,12 +1835,33 @@ export default function BOMComparePage() {
                     >
                         Review Ignored Items ({ignoredCount})
                     </button>
-                    <button onClick={exportCsvMain} disabled={!rows.length} style={btn}>Export CSV</button>
-                    <button onClick={exportPdf} disabled={!rows.length} style={btn}>Export PDF</button>
+                    <button
+                        onClick={canExport ? exportCsvMain : () => setUpgradePromptOpen(true)}
+                        disabled={!rows.length || exportInProgress != null}
+                        style={btn}
+                        title={canExport ? "Export results as CSV" : "Export (full version from Microsoft Store)"}
+                        aria-busy={exportInProgress === "csv"}
+                    >
+                        {exportInProgress === "csv" ? "Preparing…" : "Export CSV"}
+                    </button>
+                    <button
+                        onClick={canExport ? exportPdf : () => setUpgradePromptOpen(true)}
+                        disabled={!rows.length || exportInProgress != null}
+                        style={btn}
+                        title={canExport ? "Export results as PDF" : "Export (full version from Microsoft Store)"}
+                        aria-busy={exportInProgress === "pdf"}
+                    >
+                        {exportInProgress === "pdf" ? "Preparing…" : "Export PDF"}
+                    </button>
                     {logFilename ? (
                         <button onClick={downloadLog} style={btn}>Download Log</button>
                     ) : null}
                 </div>
+                <UpgradePrompt
+                    open={upgradePromptOpen}
+                    onClose={() => setUpgradePromptOpen(false)}
+                    featureName="Export (CSV/PDF)"
+                />
             </div>
 
             {/* Error banner */}
@@ -1644,9 +1871,18 @@ export default function BOMComparePage() {
                 </div>
             )}
 
-            {/* Summary */}
+            {/* Empty state: no results yet */}
+            {!loading && rows.length === 0 && !counts && !error && (
+                <div ref={resultsRef} style={{ padding: 24, background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 12, marginTop: 16, textAlign: "center" }}>
+                    <p style={{ fontSize: 15, color: "#475569", marginBottom: 8 }}>No comparison results yet</p>
+                    <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>Upload {SIDE_A.label} and {SIDE_B.label} above, then click <strong>Compare</strong>, or click <strong>Run demo</strong> to try with sample data.</p>
+                    <button type="button" onClick={onDemo} style={{ ...btn, background: "#0f766e", color: "#fff" }}>Run demo</button>
+                </div>
+            )}
+
+            {/* Summary — scroll target when results load */}
             {counts && (
-                <div style={{ ...row, gap: 8, alignItems: "center" }}>
+                <div ref={resultsRef} style={{ ...row, gap: 10, alignItems: "center", scrollMarginTop: 24, paddingTop: 16 }}>
                     <CountPill
                         label="Total"
                         value={counts.total}
@@ -1666,13 +1902,13 @@ export default function BOMComparePage() {
                         onClick={() => { setStatusFilter("Different"); setPage(1); }}
                     />
                     <CountPill
-                        label="TC Only"
+                        label={STATUS_DISPLAY_LABELS["TC Only"]}
                         value={counts.tc_only}
                         active={statusFilter === "TC Only"}
                         onClick={() => { setStatusFilter("TC Only"); setPage(1); }}
                     />
                     <CountPill
-                        label="SAP Only"
+                        label={STATUS_DISPLAY_LABELS["SAP Only"]}
                         value={counts.sap_only}
                         active={statusFilter === "SAP Only"}
                         onClick={() => { setStatusFilter("SAP Only"); setPage(1); }}
@@ -1680,54 +1916,83 @@ export default function BOMComparePage() {
                 </div>
             )}
 
-            {/* Toolbar */}
-            <div style={{ ...row, alignItems: "center" }}>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
+            {counts?.total === 0 && (
+                <div style={{ padding: "14px 16px", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, fontSize: 13, color: "#92400e" }}>
+                    No matching rows. Check your mapping and that both files contain the key columns with overlapping values. Open <strong>Review Ignored Items</strong> to see why rows were skipped.
+                </div>
+            )}
 
-                    {/* Toolbar (no status dropdown) */}
-                    <div style={{ ...row, alignItems: "center", position: "relative" }}>
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
-                            <input
-                                style={searchBox}
-                                placeholder="Search in all columns…"
-                                value={search}
-                                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                            />
-
-                            <button
-                                ref={colsBtnRef}
-                                type="button"
-                                onClick={() => setColsOpen(o => !o)}
-                                style={{
-                                    padding: "6px 10px",
-                                    border: colsOpen ? "1px solid #1976d2" : "1px solid #ddd",
-                                    borderRadius: 8,
-                                    background: colsOpen ? "#1976d2" : "white",
-                                    color: colsOpen ? "white" : "inherit",
-                                    cursor: "pointer"
-                                }}
-                                title="Manage columns"
-                            >
-                                Columns ▾
-                            </button>
-
-                            <ColumnsPopover
-                                open={colsOpen}
-                                anchorRef={colsBtnRef}
-                                onClose={() => setColsOpen(false)}
-                                dataColumns={dataColumns}
-                                visibleCols={visibleCols}
-                                setVisibleCols={setVisibleCols}
-                                skippedRows={skippedRows}
-                            />
+            {/* Column mapping: from active mapping; keys narrow results */}
+            {rows.length > 0 && dataColumns.length > 0 && (
+                <div role="region" aria-label="Column mapping" style={{ padding: "14px 18px", background: "#fff", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 13, marginBottom: 16 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4, color: "#334155" }}>Column mapping</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>Columns follow the active mapping in Mapping Manager. Key columns narrow down the results (they match rows); other columns are compared and shown.</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div>
+                            <strong style={{ color: "#0f766e" }}>Compared (available in both):</strong>{" "}
+                            {dataColumns
+                                .filter((c) => c.startsWith("BOM_A_"))
+                                .map((c) => columnDisplayName(c))
+                                .join(", ") || "—"}
                         </div>
+                        {skippedColumns?.extra_in_tc?.length > 0 && (
+                            <div>
+                                <strong style={{ color: "#b45309" }}>Only in {SIDE_A.label} (not compared):</strong>{" "}
+                                {skippedColumns.extra_in_tc.map((c) => columnDisplayName(c)).join(", ")}
+                            </div>
+                        )}
+                        {skippedColumns?.extra_in_sap?.length > 0 && (
+                            <div>
+                                <strong style={{ color: "#b45309" }}>Only in {SIDE_B.label} (not compared):</strong>{" "}
+                                {skippedColumns.extra_in_sap.map((c) => columnDisplayName(c)).join(", ")}
+                            </div>
+                        )}
                     </div>
                 </div>
-            </div>
+            )}
+
+            {/* Results section */}
+            {rows.length > 0 && (
+                <>
+                    <h2 style={{ fontSize: 14, fontWeight: 600, color: "#334155", marginBottom: 12, marginTop: 8 }}>Results</h2>
+                    <div style={{ ...row, alignItems: "center", position: "relative", marginBottom: 12 }}>
+                        <input
+                            style={searchBox}
+                            placeholder="Search in all columns…"
+                            value={search}
+                            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                            aria-label="Search in results"
+                        />
+                        <button
+                            ref={colsBtnRef}
+                            type="button"
+                            onClick={() => setColsOpen(o => !o)}
+                            style={{
+                                ...btn,
+                                border: colsOpen ? "1px solid #0f766e" : "1px solid #cbd5e1",
+                                background: colsOpen ? "#0f766e" : "#fff",
+                                color: colsOpen ? "#fff" : "#334155",
+                            }}
+                            title="Show or hide columns"
+                        >
+                            Columns ▾
+                        </button>
+                        <ColumnsPopover
+                            open={colsOpen}
+                            anchorRef={colsBtnRef}
+                            onClose={() => setColsOpen(false)}
+                            dataColumns={dataColumns}
+                            visibleCols={visibleCols}
+                            setVisibleCols={setVisibleCols}
+                            skippedRows={skippedRows}
+                        />
+                    </div>
+                </>
+            )}
 
             {/* Result table */}
             <div style={tableWrap}>
-                <table style={table}>
+                <table style={table} role="table" aria-label="BOM comparison results">
                     <thead>
                         <tr>
                             {dataColumns.filter((c) => visibleCols[c]).map((c) => (
@@ -1740,7 +2005,7 @@ export default function BOMComparePage() {
                                     }
                                     title="Click to sort (none → asc → desc)"
                                 >
-                                    <span style={thLabel}>{c}</span>
+                                    <span style={thLabel}>{columnDisplayName(c)}</span>
                                     <span style={thArrow}>{sortArrow(c)}</span>
                                 </th>
                             ))}
@@ -1763,7 +2028,9 @@ export default function BOMComparePage() {
                         {pageRows.length === 0 ? (
                             <tr>
                                 <td colSpan={dataColumns.filter((c) => visibleCols[c]).length + 2} style={tdEmpty}>
-                                    No rows
+                                    {counts?.total === 0
+                                        ? "No matching rows. Check your mapping or file contents."
+                                        : "No rows"}
                                 </td>
                             </tr>
                         ) : (
@@ -1773,10 +2040,10 @@ export default function BOMComparePage() {
                                         <td key={c} style={td} title={sanitizeCell(r[c])}>
                                             {highlightText(r[c], search)}</td>
                                     ))}
-                                    <td style={td} title={sanitizeCell(r.status)}>
+                                    <td style={td} title={sanitizeCell(STATUS_DISPLAY_LABELS[r.status] ?? r.status)}>
                                         <span style={statusBadgeStyle(r.status)}>
                                             <StatusIcon status={r.status} />
-                                            {highlightText(r.status, search)}
+                                            {highlightText(STATUS_DISPLAY_LABELS[r.status] ?? r.status, search)}
                                         </span>
                                     </td>
                                     <td style={td}>
@@ -1851,16 +2118,17 @@ function CountPill({ label, value, active, onClick }) {
             aria-pressed={!!active}
             title={`Filter: ${label}`}
             style={{
-                padding: "6px 12px",
-                borderRadius: 9999,
-                border: active ? "1px solid #1976d2" : "1px solid #ddd",
-                background: active ? "#1976d2" : "white",
-                color: active ? "white" : "#1976d2",
-                fontSize: 12,
-                minWidth: 120,
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: active ? "1px solid #0f766e" : "1px solid #e2e8f0",
+                background: active ? "#0f766e" : "#fff",
+                color: active ? "#fff" : "#475569",
+                fontSize: 13,
+                fontWeight: 500,
+                minWidth: 100,
                 textAlign: "center",
                 cursor: "pointer",
-                boxShadow: active ? "0 0 0 2px rgba(25,118,210,0.15)" : "none"
+                boxShadow: active ? "0 1px 2px rgba(15,118,110,.2)" : "none"
             }}
         >
             {label}: {value}
@@ -1879,67 +2147,56 @@ function EyeIcon(props) {
         </svg>
     );
 }
-/* ————— styles ————— */
-const wrap = { padding: 16, fontFamily: "system-ui, Arial" };
-const row = { display: "flex", gap: 16, marginBottom: 12, flexWrap: "wrap" };
+/* ————— Enterprise styles ————— */
+const wrap = { padding: "24px 32px 40px", maxWidth: 1400, margin: "0 auto" };
+const row = { display: "flex", gap: 20, marginBottom: 16, flexWrap: "wrap" };
 
 const card = {
-    flex: 1, minWidth: 280, padding: 12,
-    border: "1px solid #e0e0e0", borderRadius: 8, background: "#fafafa",
-    minHeight: 150 // <- fixed-ish height for stable layout
+    flex: 1, minWidth: 280, padding: 20,
+    border: "1px solid #e2e8f0", borderRadius: 12, background: "#ffffff",
+    minHeight: 160, boxShadow: "0 1px 3px rgba(0,0,0,.06)"
 };
 const statusLine = (ok, hasMsg) => ({
-    display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginTop: 6,
-    color: hasMsg ? (ok ? "#16a34a" : "#dc2626") : "#667085",
-    minHeight: 18
+    display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 8,
+    color: hasMsg ? (ok ? "#059669" : "#dc2626") : "#64748b",
+    minHeight: 20
 });
-const iconCell = { fontWeight: 700, width: 16, textAlign: "center" };
-const hintLine = { fontSize: 12, color: "#667085", marginTop: 4 };
-const cardTitle = { fontWeight: 600, marginBottom: 6 };
+const iconCell = { fontWeight: 700, width: 18, textAlign: "center" };
+const hintLine = { fontSize: 12, color: "#64748b", marginTop: 6 };
+const cardTitle = { fontWeight: 600, fontSize: 14, color: "#0f172a", marginBottom: 8, letterSpacing: "-0.01em" };
 
-const btn = { padding: "8px 12px", background: "white", border: "1px solid #ddd", borderRadius: 6, cursor: "pointer" };
+const btn = {
+    padding: "8px 16px", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 8,
+    cursor: "pointer", fontSize: 13, fontWeight: 500, color: "#334155"
+};
 const btnWarn = {
-    padding: "6px 10px",
-    border: "1px solid #b45309",
-    borderRadius: 8,
-    background: "#fff7ed",      // warm/amber tint
-    color: "#7c2d12",
-    fontWeight: 700,
-    cursor: "pointer",
+    padding: "8px 16px", border: "1px solid #d97706", borderRadius: 8,
+    background: "#fffbeb", color: "#92400e", fontWeight: 600, fontSize: 13, cursor: "pointer",
 };
 const btnGreen = {
-    padding: "6px 10px",
-    border: "1px solid #16a34a",
-    borderRadius: 8,
-    background: "#16a34a",
-    color: "white",
-    cursor: "pointer",
+    padding: "10px 20px", border: "none", borderRadius: 8, background: "#0f766e",
+    color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer",
+    boxShadow: "0 1px 2px rgba(0,0,0,.05)",
 };
 
-const errorBanner = { background: "#fdecea", color: "#b71c1c", padding: 10, borderRadius: 6, border: "1px solid #f5c6cb" };
+const errorBanner = { background: "#fef2f2", color: "#b91c1c", padding: 12, borderRadius: 8, border: "1px solid #fecaca" };
 
-const searchBox = { padding: "6px 10px", border: "1px solid #ddd", borderRadius: 6, width: 300 };
+const searchBox = { padding: "8px 12px", border: "1px solid #e2e8f0", borderRadius: 8, width: 320, fontSize: 13 };
 
-const tableWrap = { border: "1px solid #eee", borderRadius: 8, overflow: "auto" };
+const tableWrap = { border: "1px solid #e2e8f0", borderRadius: 12, overflow: "auto", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.06)" };
 const table = { width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" };
-const thBase = { textAlign: "left", padding: 8, borderBottom: "1px solid #eee", position: "sticky", top: 0, background: "#fafafa" };
+const thBase = { textAlign: "left", padding: "12px 14px", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, background: "#f8fafc", fontWeight: 600, fontSize: 12, color: "#475569", textTransform: "uppercase", letterSpacing: "0.03em" };
 const thSortable = { ...thBase, cursor: "pointer", userSelect: "none", width: 160 };
 const thAction = { ...thBase, width: 90, textAlign: "left" };
 const thLabel = { display: "inline-block", maxWidth: "calc(100% - 20px)", verticalAlign: "middle" };
-const thArrow = { marginLeft: 6, fontSize: 12, opacity: 0.6 };
+const thArrow = { marginLeft: 6, fontSize: 11, opacity: 0.7 };
 
-const td = { padding: 8, borderBottom: "1px solid #f3f3f3", whiteSpace: "normal", wordBreak: "break-word", overflowWrap: "anywhere" };
-const tdEmpty = { padding: 16, textAlign: "center", color: "#888" };
+const td = { padding: "12px 14px", borderBottom: "1px solid #f1f5f9", whiteSpace: "normal", wordBreak: "break-word", overflowWrap: "anywhere", fontSize: 13 };
+const tdEmpty = { padding: 24, textAlign: "center", color: "#64748b", fontSize: 13 };
 
 const iconBtn = {
-    padding: "4px 6px",
-    border: "1px solid #ddd",
-    borderRadius: 6,
-    background: "white",
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center"
+    padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff",
+    cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
 };
 
 const STATUS_THEME = {

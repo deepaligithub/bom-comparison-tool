@@ -1,0 +1,20 @@
+[
+  {
+    "part number": "PN1005",
+    "plant": "P02",
+    "revision": "B",
+    "description": "Housing",
+    "quantity": 1,
+    "uom": "EA",
+    "color": "Gray"
+  },
+  {
+    "part number": "PN1006",
+    "plant": "P02",
+    "revision": "B",
+    "description": "Gasket",
+    "quantity": 3,
+    "uom": "EA",
+    "color": "Black"
+  }
+]

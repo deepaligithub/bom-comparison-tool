@@ -45,7 +45,7 @@ export default function SummaryCards({ results = [] }) {
       value: unique,
       percent: safePercent(unique),
       gradient: 'bg-gradient-to-r from-yellow-400 to-yellow-600',
-      icon: <FaFingerprint className="h-6 w-6 text-white" title="Only in TC or SAP" />,
+      icon: <FaFingerprint className="h-6 w-6 text-white" title="Only in BOM A or BOM B" />,
     },
   ];
 

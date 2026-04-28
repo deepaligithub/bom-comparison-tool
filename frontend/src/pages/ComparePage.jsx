@@ -1,5 +1,5 @@
 import Swal from 'sweetalert2';
-import axios from 'axios';
+import apiClient from '../api/client';
 import withReactContent from 'sweetalert2-react-content';
 import React, { useState, useContext, useEffect, useRef } from 'react';
 import { AppContext } from '../context/AppContext';
@@ -106,7 +106,7 @@ export default function ComparePage() {
       await MySwal.fire({
         icon: 'warning',
         title: 'Upload Required',
-        text: 'Please upload valid Teamcenter and SAP files.',
+        text: 'Please upload valid BOM A and BOM B files.',
       });
       return;
     }
@@ -125,11 +125,11 @@ export default function ComparePage() {
     setCompareError(null); // Reset previous errors
 
     const formData = new FormData();
-    formData.append('tcFile', prevTcFile);
-    formData.append('sapFile', prevSapFile);
+    formData.append('bom_a', prevTcFile);
+    formData.append('bom_b', prevSapFile);
 
     try {
-      const response = await axios.post('http://localhost:5000/api/compare', formData, {
+      const response = await apiClient.post('/api/compare', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -224,7 +224,7 @@ export default function ComparePage() {
 
   const handleDownloadLog = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/download-log/${logFilename}`, {
+      const response = await apiClient.get(`/api/download-log/${logFilename}`, {
         responseType: 'blob',
         headers: {
           'Cache-Control': 'no-cache',

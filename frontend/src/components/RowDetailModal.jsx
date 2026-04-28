@@ -1,5 +1,6 @@
 import React from 'react';
 import { FaCube, FaDatabase } from 'react-icons/fa';
+import { SIDE_A, SIDE_B } from '../config/sideConfig';
 
 export default function RowDetailModal({ row, mapping, onClose }) {
     if (!row) return null;
@@ -33,13 +34,13 @@ export default function RowDetailModal({ row, mapping, onClose }) {
                 <h2 className="text-xl font-bold mb-4 text-gray-800">Part Detail View</h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Teamcenter Card */}
+                    {/* Source BOM Card */}
                     <div className="bg-blue-50 p-4 rounded border border-blue-200">
                         <h3 className="font-bold text-blue-700 mb-2 flex items-center gap-2">
                             <FaCube className="text-blue-700" />
-                            Teamcenter Data
+                            {SIDE_A.label} Data
                         </h3>
-                        <p><strong>Part Number:</strong> {getMappedValue(partNumberField.tc)}</p>
+                        <p><strong>Part / Key:</strong> {getMappedValue(partNumberField.tc)}</p>
                         <p><strong>Description:</strong> {getMappedValue(descriptionField.tc)}</p>
                         <p>
                             <strong>Quantity:</strong>{' '}
@@ -49,12 +50,12 @@ export default function RowDetailModal({ row, mapping, onClose }) {
                         </p>
                     </div>
 
-                    {/* SAP Card */}
+                    {/* Target BOM Card */}
                     <div className="bg-orange-50 p-4 rounded border border-orange-200">
                         <h3 className="font-bold text-orange-700 mb-2 flex items-center gap-2">
-                            <FaDatabase className="text-orange-700" /> SAP Data
+                            <FaDatabase className="text-orange-700" /> {SIDE_B.label} Data
                         </h3>
-                        <p><strong>Material Number:</strong> {getMappedValue(partNumberField.sap)}</p>
+                        <p><strong>Part / Key:</strong> {getMappedValue(partNumberField.sap)}</p>
                         <p><strong>Description:</strong> {getMappedValue(descriptionField.sap)}</p>
                         <p>
                             <strong>Quantity:</strong>{' '}
@@ -71,10 +72,10 @@ export default function RowDetailModal({ row, mapping, onClose }) {
                         <h4 className="font-bold mb-1">Detected Differences</h4>
                         <ul className="list-disc pl-5 text-sm space-y-1">
                             {tcQty !== sapQty && (
-                                <li>Quantity mismatch: TC ({tcQty}) vs SAP ({sapQty})</li>
+                                <li>Quantity mismatch: {SIDE_A.label} ({tcQty}) vs {SIDE_B.label} ({sapQty})</li>
                             )}
-                            {['Only in TC', 'TC Only'].includes(status) && <li>❌ Not found in SAP</li>}
-                            {['Only in SAP', 'SAP Only'].includes(status) && <li>❌ Not found in Teamcenter</li>}
+                            {['Only in TC', 'TC Only'].includes(status) && <li>❌ Not found in Target BOM</li>}
+                            {['Only in SAP', 'SAP Only'].includes(status) && <li>❌ Not found in Source BOM</li>}
                         </ul>
                     </div>
                 )}

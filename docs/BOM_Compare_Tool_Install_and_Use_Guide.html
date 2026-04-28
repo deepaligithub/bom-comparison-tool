@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BOM Compare Tool — Installation &amp; User Guide | SAP, Teamcenter, Windchill, ERP &amp; PLM</title>
+  <meta name="description" content="Installation and user documentation for BOM Compare Tool. Compare BOMs from SAP, Teamcenter, Windchill, Oracle, Microsoft Dynamics, and any ERP or PLM. PLM to PLM, PLM to ERP, ERP to ERP. Setup, mapping, and validation guide.">
+  <meta name="keywords" content="BOM Compare documentation, BOM compare user guide, SAP BOM compare, Teamcenter BOM, Windchill BOM, Oracle ERP BOM, PLM to ERP documentation, ERP to ERP BOM, BOM validation guide, installation guide BOM">
+  <meta name="robots" content="index, follow">
+  <style>
+    :root { --ink: #1a1a1a; --muted: #4a5568; --accent: #1e40af; --border: #e2e8f0; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem 2.5rem;
+      background: #fff;
+    }
+    @media print {
+      body { padding: 1rem 1.5rem; max-width: none; }
+      .no-print { display: none !important; }
+      h1, h2, h3 { page-break-after: avoid; }
+      section, .page-break-before { page-break-before: always; }
+      .cover { page-break-after: always; }
+    }
+    .no-print {
+      background: #eff6ff;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      padding: 0.75rem 1rem;
+      margin-bottom: 2rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    .no-print strong { display: block; margin-bottom: 0.25rem; }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin: 2rem 0 0.75rem;
+      padding-bottom: 0.25rem;
+      border-bottom: 2px solid var(--border);
+    }
+    h3 { font-size: 1.05rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+    p { margin: 0 0 0.75rem; color: var(--ink); }
+    ul, ol { margin: 0 0 1rem; padding-left: 1.5rem; }
+    li { margin-bottom: 0.35rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    th, td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: left; }
+    th { background: #f8fafc; font-weight: 600; }
+    code, kbd {
+      background: #f1f5f9;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.88em;
+      font-family: 'Consolas', 'Monaco', monospace;
+    }
+    pre {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      margin: 1rem 0;
+    }
+    pre code { background: none; padding: 0; }
+    .cover {
+      text-align: center;
+      padding: 3rem 0;
+    }
+    .cover .product { font-size: 1.5rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem; }
+    .cover .title { font-size: 1.25rem; font-weight: 600; margin-bottom: 2rem; }
+    .cover .sub { color: var(--muted); font-size: 0.95rem; }
+    .cover .edition { margin-top: 2rem; font-size: 0.85rem; color: var(--muted); }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .toc-list { list-style: none; padding-left: 0; }
+    .toc-list li { margin-bottom: 0.5rem; }
+    .toc-list a { color: var(--accent); text-decoration: none; }
+    .toc-list a:hover { text-decoration: underline; }
+    strong { font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <div class="no-print">
+    <strong>Save as PDF</strong>
+    In your browser: <kbd>Ctrl</kbd>+<kbd>P</kbd> (Windows) or <kbd>Cmd</kbd>+<kbd>P</kbd> (Mac) → choose &quot;Save as PDF&quot; or &quot;Microsoft Print to PDF&quot;.
+  </div>
+
+  <div class="cover">
+    <div class="product">BOM Compare Tool</div>
+    <div class="title">Installation &amp; User Guide</div>
+    <p class="sub">Enterprise Bill of Materials comparison — install once, compare at scale.</p>
+    <p class="sub">For enterprise and professional deployments.</p>
+    <p class="edition">Professional Edition</p>
+  </div>
+
+  <h2 id="contents">Contents</h2>
+  <ol class="toc-list">
+    <li><a href="#part1">Part 1 — Installation</a></li>
+    <li><a href="#part2">Part 2 — How to Use</a></li>
+  </ol>
+
+  <hr>
+
+  <h2 id="part1">Part 1 — Installation</h2>
+
+  <p>This guide explains how to install and run the BOM Compare Tool on your machine. <strong>Windows packages are exe-based:</strong> just double-click the exe and it sets everything up; if something goes wrong (e.g. port in use), a <strong>popup message</strong> will tell you what to do.</p>
+
+  <h3>Windows package (recommended)</h3>
+  <p>If you have a package folder (e.g. BOMCompareTool-Package or BOMCompareTool-Delivery):</p>
+  <ul>
+    <li><strong>Double-click <code>BOMCompareTool.exe</code></strong> — No install. The app starts and your browser opens at <strong>http://127.0.0.1:5000</strong>. If anything goes wrong, a popup explains the issue (e.g. port already in use). Data (uploads, logs) is stored in the same folder as the exe.</li>
+    <li><strong>Or double-click <code>run.bat</code></strong> — Installs Python dependencies (first time) and starts the app. Requires Python 3.9+ on your PATH.</li>
+  </ul>
+  <p>Log in with <strong>admin</strong> / <strong>admin</strong>.</p>
+
+  <h3>Prerequisites (for run.bat or source)</h3>
+  <ul>
+    <li><strong>Node.js</strong> (LTS, e.g. 18 or 20) — for the React frontend. <a href="https://nodejs.org/">Download</a></li>
+    <li><strong>Python 3</strong> (3.9 or newer) — for the Flask backend. <a href="https://www.python.org/downloads/">Download</a></li>
+    <li><strong>npm</strong> — included with Node.js</li>
+  </ul>
+  <p><strong>Windows:</strong> Add Python to your PATH (e.g. <code>C:\...\Python3xx\</code> and <code>C:\...\Python3xx\Scripts\</code>).</p>
+
+  <h3>Option A: Local development (recommended for first-time setup)</h3>
+
+  <p><strong>1. Get the project</strong><br>Clone or download the project and open a terminal in the project root (the folder that contains <code>backend</code> and <code>frontend</code>).</p>
+
+  <p><strong>2. Install and run the backend</strong></p>
+  <pre><code>cd backend
+pip install -r requirements.txt
+python run.py</code></pre>
+  <p>Backend runs at <strong>http://localhost:5000</strong>. Leave this terminal open.</p>
+
+  <p><strong>Optional — virtual environment (recommended):</strong></p>
+  <pre><code>cd backend
+python -m venv venv
+venv\Scripts\activate    # Windows
+pip install -r requirements.txt
+python run.py</code></pre>
+
+  <p><strong>3. Install and run the frontend</strong><br>Open a <em>second</em> terminal in the project root:</p>
+  <pre><code>cd frontend
+npm install
+npm start</code></pre>
+  <p>The app opens at <strong>http://localhost:3000</strong>. If port 3000 is in use, use the port suggested (e.g. 3001).</p>
+
+  <p><strong>4. Verify</strong><br>Log in with <strong>admin</strong> / <strong>admin</strong>. Backend health: <strong>http://localhost:5000/api/health</strong> should return <code>"status": "ok"</code>.</p>
+
+  <h3>Option B: Production run (single server)</h3>
+
+  <p>Build the frontend once, then run the backend to serve the app:</p>
+  <pre><code>cd frontend
+npm install
+npm run build</code></pre>
+  <p>Then run the backend with the production server (e.g. Waitress):</p>
+  <pre><code>cd backend
+pip install -r requirements.txt
+python run_production.py</code></pre>
+  <p>API runs at <strong>http://127.0.0.1:5000</strong>. Serve the built frontend from the same host (e.g. copy <code>frontend/build</code> into <code>backend/app/static</code>) or configure your reverse proxy.</p>
+
+  <p><strong>Environment variables (optional):</strong></p>
+  <table>
+    <tr><th>Variable</th><th>Description</th><th>Default</th></tr>
+    <tr><td><code>BOM_HOST</code></td><td>Host to bind</td><td>127.0.0.1</td></tr>
+    <tr><td><code>BOM_PORT</code></td><td>Port</td><td>5000</td></tr>
+    <tr><td><code>DATA_DIR</code></td><td>Base directory for data</td><td>Current dir</td></tr>
+    <tr><td><code>UPLOAD_FOLDER</code></td><td>Path for uploads and auth</td><td>DATA_DIR/uploads</td></tr>
+    <tr><td><code>LOG_DIR</code></td><td>Path for logs</td><td>DATA_DIR/logs</td></tr>
+  </table>
+
+  <h3>Option C: Windows desktop app (Electron)</h3>
+  <p>From the project root in PowerShell:</p>
+  <pre><code>.\scripts\build-windows-app.ps1</code></pre>
+  <p>Prerequisites: Node.js, Python 3, and <code>pip install pyinstaller waitress</code>. The script builds the frontend, packages the backend, and produces installers and MSIX in <code>electron/dist-electron/</code>.</p>
+
+  <h3>Where data is stored</h3>
+  <ul>
+    <li><strong>Users and auth:</strong> <code>backend/uploads/auth_users.json</code>. Default user: <strong>admin</strong> / <strong>admin</strong> (role: admin, plan: paid).</li>
+    <li><strong>Saved mappings:</strong> Under <code>backend/uploads/</code>.</li>
+    <li><strong>Logs:</strong> <code>backend/logs/</code> (if configured).</li>
+  </ul>
+
+  <h3>Troubleshooting</h3>
+  <table>
+    <tr><th>Issue</th><th>What to do</th></tr>
+    <tr><td>A popup appears when I run the exe</td><td>The exe shows a message when something goes wrong. Read the popup: e.g. "Port 5000 is already in use" means close the other app or set <code>BOM_PORT=5001</code> in a shortcut. Other errors may suggest checking logs in the same folder as the exe or contacting support.</td></tr>
+    <tr><td>Port 5000 already in use</td><td>Stop the other process or set <code>BOM_PORT</code> (e.g. 5001).</td></tr>
+    <tr><td>Port 3000 already in use</td><td>Use the port suggested by <code>npm start</code> or stop the process using 3000.</td></tr>
+    <tr><td>Frontend can’t connect</td><td>Ensure frontend is started and you open http://localhost:3000 (not 5000).</td></tr>
+    <tr><td>Login fails</td><td>Ensure <code>backend/uploads/auth_users.json</code> exists; start the backend once to create the default admin user.</td></tr>
+    <tr><td>pip or python not found</td><td>Install Python and add it to your system PATH.</td></tr>
+  </table>
+
+  <hr>
+  <h2 id="part2">Part 2 — How to Use</h2>
+
+  <p>This section walks you through logging in, comparing two BOMs, viewing results, and using optional features such as Mapping Manager and export.</p>
+
+  <h3>1. Log in</h3>
+  <ol>
+    <li>Open the app in your browser. The app usually opens automatically when you start it; if not, use the address shown when you started the app.</li>
+    <li>Enter <strong>Username:</strong> <code>admin</code>, <strong>Password:</strong> <code>admin</code>.</li>
+    <li>Click <strong>Log in</strong>.</li>
+  </ol>
+
+  <h3>2. Compare two BOMs (main workflow)</h3>
+
+  <p><strong>2.1 Upload Source BOM and Target BOM</strong></p>
+  <ul>
+    <li><strong>Source BOM</strong> = reference file (e.g. from your PLM or source system).</li>
+    <li><strong>Target BOM</strong> = file to compare (e.g. from SAP or target system).</li>
+  </ul>
+  <p>On the <strong>BOM Compare</strong> page: use <strong>Upload Source BOM</strong> and <strong>Upload Target BOM</strong> to select files. Supported formats:</p>
+  <table>
+    <tr><th>Format</th><th>Source BOM</th><th>Target BOM</th></tr>
+    <tr><td>CSV</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>Excel (.xlsx)</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>JSON</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>PLMXML</td><td>Yes</td><td>No</td></tr>
+  </table>
+
+  <p><strong>2.2 Optional: Use a saved mapping preset</strong><br>If an admin has set an active mapping in Mapping Manager, check <strong>“Use saved mapping preset”</strong> before comparing. Otherwise the tool builds a mapping from file headers (column names, case-insensitive).</p>
+
+  <p><strong>2.3 Run the comparison</strong><br>Click <strong>Validate BOMs</strong> (or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>). The page scrolls to the results when done.</p>
+
+  <p><strong>2.4 Understand the results</strong></p>
+  <ul>
+    <li><strong>Summary</strong> — Total rows and counts for Matched, Different, Source BOM only, Target BOM only.</li>
+    <li><strong>Column mapping</strong> — Which columns were compared and which exist only in one file.</li>
+    <li><strong>Results table</strong> — One row per key; columns show Source/Target values and <strong>Status</strong> (Matched, Different, Source BOM only, Target BOM only).</li>
+  </ul>
+  <p><strong>Filters:</strong> All, Matched, Different, Source BOM only, Target BOM only. Use the <strong>search</strong> box to filter by any visible column. Use <strong>Columns ▾</strong> to show or hide columns. Click the <strong>ℹ</strong> button on a row for full detail.</p>
+
+  <h3>3. Export results (paid plan)</h3>
+  <p>If your account has Export: <strong>Export CSV</strong> and <strong>Export PDF</strong> in the toolbar above the results table.</p>
+
+  <h3>4. Ignored rows and columns</h3>
+  <p>Use the <strong>Ignored</strong> area to inspect duplicates, missing keys, and skipped columns. You can export ignored rows as CSV from that section.</p>
+
+  <h3>5. Mapping Manager (paid plan or admin)</h3>
+  <p>Create, edit, and activate saved mappings (presets) for files with different column names or for PLMXML.</p>
+  <ul>
+    <li>Open <strong>Mapping Manager</strong> from the navbar.</li>
+    <li><strong>Create Mapping</strong> — Use UI (upload samples, map columns, set keys) or Manual (paste mapping lines).</li>
+    <li><strong>Manage Mappings</strong> — Set one mapping as <strong>Active</strong>. On BOM Compare, check “Use saved mapping preset” and run Validate BOMs.</li>
+  </ul>
+
+  <h3>6. Change password</h3>
+  <p>Click your <strong>username</strong> in the top-right → <strong>Change password</strong> → enter current and new password.</p>
+
+  <h3>7. Users page (admin only)</h3>
+  <p>Admins see a <strong>Users</strong> link in the navbar to view users and change plans (free/paid).</p>
+
+  <h3>8. Sample files</h3>
+  <p>Use files in the <code>samples/</code> folder: <code>bom_a_*</code> as BOM A and <code>bom_b_*</code> as BOM B (same number for a pair). Includes 1000-row samples for large-BOM testing; the app supports up to ~10,000 lines per BOM (within the 10 MB upload limit).</p>
+
+  <h3>Quick reference</h3>
+  <table>
+    <tr><th>Task</th><th>Where / How</th></tr>
+    <tr><td>Log in</td><td>Login page → admin / admin</td></tr>
+    <tr><td>Compare BOMs</td><td>BOM Compare → Upload A &amp; B → Validate BOMs</td></tr>
+    <tr><td>Filter results</td><td>Tabs: All, Matched, Different, BOM A only, BOM B only</td></tr>
+    <tr><td>Search</td><td>Search box above the table</td></tr>
+    <tr><td>Show/hide columns</td><td>Columns ▾ button</td></tr>
+    <tr><td>Row details</td><td>ℹ button on a row</td></tr>
+    <tr><td>Export CSV/PDF</td><td>Toolbar above table (paid)</td></tr>
+    <tr><td>Saved mapping</td><td>Mapping Manager → set Active; then “Use saved mapping preset” on BOM Compare</td></tr>
+    <tr><td>Change password</td><td>Navbar → username → Change password</td></tr>
+    <tr><td>Users (admin)</td><td>Navbar → Users</td></tr>
+  </table>
+
+  <hr>
+  <p style="color: var(--muted); font-size: 0.9rem;">BOM Compare Tool — Installation &amp; User Guide. For support and mapping details, see the docs folder included with your installation.</p>
+
+</body>
+</html>

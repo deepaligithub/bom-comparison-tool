@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plm:PLMXML xmlns:plm="http://www.plmxml.org/Schemas/PLMXMLSchema">
+  <plm:ProductRevisionView
+      part_number="PLM1001"
+      plant="P01"
+      revision="A"
+      description="Bracket"
+      quantity="2"
+      uom="EA"
+      color="Silver" />
+  <plm:ProductRevisionView
+      part_number="PLM1002"
+      plant="P01"
+      revision="A"
+      description="Bolt"
+      quantity="10"
+      uom="EA"
+      color="Zinc" />
+</plm:PLMXML>

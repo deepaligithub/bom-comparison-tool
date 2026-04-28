@@ -14,8 +14,8 @@ export default function PaginatedMappingTable({ mappings }) {
             <table className="min-w-full text-sm border rounded">
                 <thead className="bg-gray-100 text-gray-700 font-semibold">
                     <tr>
-                        <th className="text-left px-4 py-2 border-r w-1/2">Teamcenter Column (TC)</th>
-                        <th className="text-left px-4 py-2">SAP Column</th>
+                        <th className="text-left px-4 py-2 border-r w-1/2">BOM A Column</th>
+                        <th className="text-left px-4 py-2">BOM B Column</th>
                     </tr>
                 </thead>
                 <tbody>

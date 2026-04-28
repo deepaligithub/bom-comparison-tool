@@ -24,6 +24,12 @@ frontend/.DS_Store
 /backend/.env.local
 
 /backend/logs/
+
+# Backend runtime/generated folders
+/backend/uploads/
+/backend/build/
+/backend/dist/
+/backend/app/static/
 backend/.DS_Store
 
 # Flask instance folder (if used)
@@ -63,3 +69,22 @@ coverage.xml
 # Future: Reports or exports
 /backend/exports/
 exports/
+node_modules
+
+# Electron build outputs
+/electron/dist-electron*/
+/electron/resources/static/
+/electron/resources/backend/
+
+# Package/build artifacts (repo root)
+/dist/
+/logs/
+*.zip
+*.appx
+*.exe
+*.msix
+*.docx
+.frontend.hash
+.vendor_zipapp/
+BOMCompareTool-*/
+DeploymentPackage/

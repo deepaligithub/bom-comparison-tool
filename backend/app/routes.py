@@ -1,4 +1,4 @@
-import os, sys, io, csv, json, math, logging
+import os, sys, io, csv, json, math, logging, hashlib, subprocess
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app, g, send_file
 from collections import Counter, defaultdict
@@ -8,6 +8,68 @@ import xml.etree.ElementTree as ET
 bp = Blueprint("api", __name__, url_prefix="/api")
 NA_STR = "N/A"
 RELAX_KEYS = True  # <- progressive key matching (3-of-3 -> 2-of-3 -> 1-of-3 if unambiguous)
+SOURCE_BOM_LABEL = "Source BOM"
+TARGET_BOM_LABEL = "Target BOM"
+
+def _password_hash(password):
+    return hashlib.sha256((password or "").encode("utf-8")).hexdigest()
+
+def _auth_users_path():
+    return os.path.join(current_app.config["UPLOAD_FOLDER"], "auth_users.json")
+
+def _load_auth_users():
+    path = _auth_users_path()
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Seed default admin (password: admin), plan: paid for full access
+    default = {"admin": {"password_hash": _password_hash("admin"), "role": "admin", "plan": "paid"}}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(default, f, indent=2)
+    return default
+
+def _save_auth_users(data):
+    path = _auth_users_path()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+# ----------------- plan / paid features -----------------
+# Free: BOM Compare (view results), change password.
+# Paid: + Export (Excel/PDF), Mapping Manager (create/edit/load mappings).
+# Admin role: + Users page (unchanged by plan).
+PAID_FEATURES = {"export", "mapping_manager"}
+
+
+def _features_for_plan(plan, role):
+    """Return dict of feature flags for a given plan and role."""
+    paid = plan == "paid"
+    admin = role == "admin"
+    return {
+        "export": paid,
+        "mapping_manager": paid or admin,
+        "users_page": admin,
+    }
+
+
+def _request_plan():
+    """Plan from request (X-User-Plan header). Default 'free' if missing."""
+    return (request.headers.get("X-User-Plan") or "free").strip().lower()
+
+
+def _require_paid():
+    """If request is from a free plan, abort with 402 and message."""
+    if _request_plan() != "paid":
+        return jsonify({
+            "error": "This feature requires a paid plan",
+            "code": "UPGRADE_REQUIRED",
+        }), 402
+    return None
+
 
 # ----------------- helpers -----------------
 
@@ -31,6 +93,57 @@ def _norm_print(v):
         except Exception:
             pass
     return s
+
+
+def _col_lookup(columns):
+    """Build case-insensitive column lookup: lower(name) -> actual name (for mapper attributes)."""
+    return {str(c).lower(): c for c in columns} if columns else {}
+
+
+class _FileLike:
+    """File-like object for _parse_file_to_rows: .filename, .read(), .seek()."""
+    def __init__(self, path, filename):
+        with open(path, "rb") as f:
+            self._data = f.read()
+        self._pos = 0
+        self.filename = filename
+
+    def read(self, size=-1):
+        if size == -1:
+            result = self._data[self._pos:]
+            self._pos = len(self._data)
+        else:
+            result = self._data[self._pos : self._pos + size]
+            self._pos += len(result)
+        return result
+
+    def seek(self, pos, whence=io.SEEK_SET):
+        if whence == io.SEEK_SET:
+            self._pos = pos
+        elif whence == io.SEEK_CUR:
+            self._pos += pos
+        else:
+            self._pos = len(self._data) + pos
+        return self._pos
+
+
+def _get_samples_dir():
+    """Return the samples directory (project root/samples or DATA_DIR/samples)."""
+    if os.environ.get("DATA_DIR"):
+        out = os.path.join(os.environ["DATA_DIR"], "samples")
+        if os.path.isdir(out):
+            return out
+    # From backend/app/routes.py -> project root = parent of backend
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    candidates = [
+        os.path.join(root, "samples"),
+        os.path.join(os.getcwd(), "samples"),
+        os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "samples"),
+    ]
+    for d in candidates:
+        if os.path.isdir(d):
+            return d
+    return candidates[0]
 
 def _parse_file_to_rows(file):
     """Return list[dict[str,str]]; all cell values are strings (no numeric coercion)."""
@@ -81,11 +194,86 @@ def _load_active_mapping(logger):
             return m
     raise RuntimeError("No active mapping file found")
 
+def _seed_default_mapping_presets(mapping_dir):
+    """Create 5 OOTB default presets (1–5 keys) matching sample data column names (bom_a_sample_01 / bom_b_sample_01)."""
+    existing = [f for f in os.listdir(mapping_dir) if f.endswith(".json")]
+    if existing:
+        return
+    now = datetime.now().isoformat()
+    # Column names must match sample CSVs: part number, material number, plant, plant code, revision, revision level, description, quantity, color
+    presets = [
+        {
+            "fname": "Default_Single_Key_Part_Material.json",
+            "keys": [{"tc": "part number", "sap": "material number", "isKey": True}],
+            "active": True,
+        },
+        {
+            "fname": "Default_2_Keys_Part_Plant.json",
+            "keys": [
+                {"tc": "part number", "sap": "material number", "isKey": True},
+                {"tc": "plant", "sap": "plant code", "isKey": True},
+            ],
+            "active": False,
+        },
+        {
+            "fname": "Default_3_Keys_Part_Plant_Revision.json",
+            "keys": [
+                {"tc": "part number", "sap": "material number", "isKey": True},
+                {"tc": "plant", "sap": "plant code", "isKey": True},
+                {"tc": "revision", "sap": "revision level", "isKey": True},
+            ],
+            "active": False,
+        },
+        {
+            "fname": "Default_4_Keys.json",
+            "keys": [
+                {"tc": "part number", "sap": "material number", "isKey": True},
+                {"tc": "plant", "sap": "plant code", "isKey": True},
+                {"tc": "revision", "sap": "revision level", "isKey": True},
+                {"tc": "quantity", "sap": "quantity", "isKey": True},
+            ],
+            "active": False,
+        },
+        {
+            "fname": "Default_5_Keys.json",
+            "keys": [
+                {"tc": "part number", "sap": "material number", "isKey": True},
+                {"tc": "plant", "sap": "plant code", "isKey": True},
+                {"tc": "revision", "sap": "revision level", "isKey": True},
+                {"tc": "quantity", "sap": "quantity", "isKey": True},
+                {"tc": "color", "sap": "color", "isKey": True},
+            ],
+            "active": False,
+        },
+    ]
+    # Non-key columns (avoid adding one that's already a key in this preset)
+    key_tc_set = lambda klist: {m["tc"] for m in klist}
+    non_key_all = [
+        {"tc": "description", "sap": "description", "isKey": False},
+        {"tc": "quantity", "sap": "quantity", "isKey": False},
+        {"tc": "uom", "sap": "base unit", "isKey": False},
+        {"tc": "color", "sap": "color", "isKey": False},
+    ]
+    for p in presets:
+        used = key_tc_set(p["keys"])
+        non_key = [m for m in non_key_all if m["tc"] not in used]
+        content = {
+            "mode": "preset",
+            "mappings": p["keys"] + non_key,
+            "active": p["active"],
+            "created_at": now,
+            "updated_at": now,
+        }
+        path = os.path.join(mapping_dir, p["fname"])
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(content, f, indent=2)
+    current_app.logger.info("Seeded 5 OOTB default presets (1–5 keys)")
+
 def _pair_to_cols(pairs):
     cols = []
     for m in pairs:
-        cols.append(f"TC_{m['tc']}")
-        cols.append(f"SAP_{m['sap']}")
+        cols.append(f"BOM_A_{m['tc']}")
+        cols.append(f"BOM_B_{m['sap']}")
     return cols
 
 def _norm_cmp(v):
@@ -99,6 +287,8 @@ def _norm_cmp(v):
     s = str(v).strip()
     if s.lower() in {"", "na", "n/a", "nan", "none", "n/a in tc", "n/a in sap"}:
         return "N/A"
+    if s.lower().startswith("n/a in "):
+        return "N/A"
     # collapse 5.0 -> 5
     if s.endswith(".0"):
         try:
@@ -110,6 +300,140 @@ def _norm_cmp(v):
     return s
 
 # ----------------- route -----------------
+
+@bp.route("/health", methods=["GET"])
+def health():
+    """Simple health check for load balancers or monitoring. Returns 200."""
+    return jsonify({"status": "ok"}), 200
+
+
+@bp.route("/info", methods=["GET"])
+def app_info():
+    """Return app info including data directory path (where uploads, logs, samples live)."""
+    data_dir = os.environ.get("DATA_DIR", "")
+    return jsonify({"dataDir": data_dir})
+
+
+@bp.route("/admin/free-port", methods=["POST"])
+def free_port():
+    """Admin only: kill process(es) using the given port (Windows). Use to free 5000/5001 if stuck."""
+    role = (request.headers.get("X-User-Role") or "user").strip().lower()
+    if role != "admin":
+        return jsonify({"error": "Admin only"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        port = int(data.get("port") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "port must be a number"}), 400
+    if port <= 0 or port >= 65536:
+        return jsonify({"error": "port must be between 1 and 65535"}), 400
+    if sys.platform != "win32":
+        return jsonify({"error": "Free port is only supported on Windows"}), 400
+    try:
+        out = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+        if out.returncode != 0:
+            return jsonify({"error": "Could not list ports"}), 500
+        pids = set()
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 5 and "LISTENING" in line and f":{port}" in line:
+                try:
+                    pids.add(int(parts[-1]))
+                except ValueError:
+                    pass
+        if not pids:
+            return jsonify({"message": f"No process listening on port {port}", "killed": 0}), 200
+        killed = 0
+        for pid in pids:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/F"],
+                    capture_output=True,
+                    timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+                )
+                killed += 1
+            except Exception:
+                pass
+        return jsonify({"message": f"Stopped {killed} process(es) on port {port}", "killed": killed}), 200
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Operation timed out"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/login", methods=["POST"])
+def login():
+    """Validate username/password and return user with role. Default admin: admin / admin."""
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username:
+        return jsonify({"error": "Username is required"}), 400
+    users = _load_auth_users()
+    user = users.get(username)
+    if not user or user.get("password_hash") != _password_hash(password):
+        return jsonify({"error": "Invalid username or password"}), 401
+    plan = user.get("plan", "free")
+    return jsonify({
+        "username": username,
+        "role": user.get("role", "user"),
+        "plan": plan,
+        "features": _features_for_plan(plan, user.get("role", "user")),
+    })
+
+
+@bp.route("/features", methods=["GET"])
+def get_features():
+    """Return feature flags for the current user (from X-User-Plan and X-User-Role)."""
+    plan = _request_plan()
+    role = (request.headers.get("X-User-Role") or "user").strip().lower()
+    return jsonify(_features_for_plan(plan, role))
+
+
+@bp.route("/auth-users/<username>/plan", methods=["PATCH", "PUT"])
+def set_user_plan(username):
+    """Admin only: set plan to 'free' or 'paid' for a login user."""
+    role = (request.headers.get("X-User-Role") or "user").strip().lower()
+    if role != "admin":
+        return jsonify({"error": "Admin only"}), 403
+    data = request.get_json(silent=True) or {}
+    plan = (data.get("plan") or "").strip().lower()
+    if plan not in ("free", "paid"):
+        return jsonify({"error": "plan must be 'free' or 'paid'"}), 400
+    users = _load_auth_users()
+    if username not in users:
+        return jsonify({"error": "User not found"}), 404
+    users[username] = {**users[username], "plan": plan}
+    _save_auth_users(users)
+    return jsonify({"username": username, "plan": plan})
+
+
+@bp.route("/change-password", methods=["POST"])
+def change_password():
+    """Change password for the given user. Requires current password."""
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    current_password = data.get("current_password") or ""
+    new_password = data.get("new_password") or ""
+    if not username:
+        return jsonify({"error": "Username is required"}), 400
+    if len(new_password) < 6:
+        return jsonify({"error": "New password must be at least 6 characters"}), 400
+    users = _load_auth_users()
+    user = users.get(username)
+    if not user or user.get("password_hash") != _password_hash(current_password):
+        return jsonify({"error": "Current password is incorrect"}), 401
+    users[username] = {**user, "password_hash": _password_hash(new_password)}
+    _save_auth_users(users)
+    return jsonify({"message": "Password updated successfully"})
+
 
 @bp.route("/compare2", methods=["POST"])
 def compare_bom_v2():
@@ -127,18 +451,37 @@ def compare_bom_v2():
     logger.addHandler(fh)
 
     try:
-        tc_file = request.files.get("tc_bom") or request.files.get("tc_file")
-        sap_file = request.files.get("sap_bom") or request.files.get("sap_file")
+        tc_file = request.files.get("bom_a") or request.files.get("tc_bom") or request.files.get("tc_file")
+        sap_file = request.files.get("bom_b") or request.files.get("sap_bom") or request.files.get("sap_file")
         if not tc_file or not sap_file:
-            return jsonify({"message": "Both Teamcenter and SAP BOM files are required"}), 400
+            return jsonify({"message": f"Both {SOURCE_BOM_LABEL} and {TARGET_BOM_LABEL} files are required"}), 400
 
-        # --- mapping
-        mapping = _load_active_mapping(logger)
+        # --- mapping: use inline mapping from request if provided, else active mapping file
+        mapping = None
+        inline = request.form.get("mappings")
+        if inline:
+            try:
+                raw = json.loads(inline)
+                pairs_inline = raw if isinstance(raw, list) else raw.get("mappings", [])
+                if pairs_inline and isinstance(pairs_inline[0], dict):
+                    key_count = sum(1 for m in pairs_inline if m.get("isKey"))
+                    if key_count >= 1:
+                        mapping = {"mappings": pairs_inline}
+                        logger.info("[mapping] Using inline mapping from request (dynamic)")
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if not mapping:
+            mapping = _load_active_mapping(logger)
         pairs = mapping.get("mappings", [])
         key_pairs = [m for m in pairs if m.get("isKey")]
         val_pairs = [m for m in pairs if not m.get("isKey")]
+        # OOTB-like fallback: if user didn't select any key, use first pair as key so compare still runs
+        if not key_pairs and pairs:
+            key_pairs = [pairs[0]]
+            val_pairs = pairs[1:]
+            logger.info("[mapping] No key selected; using first column pair as key (OOTB fallback)")
         if not key_pairs:
-            return jsonify({"message": "Mapping must define at least one key (isKey=true)."}), 400
+            return jsonify({"message": "Mapping must define at least one column pair (or mark one as key)."}), 400
 
         tc_key_cols = [m["tc"] for m in key_pairs]
         sap_key_cols = [m["sap"] for m in key_pairs]
@@ -148,53 +491,62 @@ def compare_bom_v2():
         plant_sap = sap_key_cols[1] if K > 1 else None
         rev_tc   = tc_key_cols[2] if K > 2 else None
         rev_sap  = sap_key_cols[2] if K > 2 else None
-        logger.info(f"[mapping] TC keys: {tc_key_cols} | SAP keys: {sap_key_cols}")
+        logger.info(f"[mapping] {SOURCE_BOM_LABEL} keys: {tc_key_cols} | {TARGET_BOM_LABEL} keys: {sap_key_cols}")
 
         # --- parse uploads (strings only)
         tc_rows_raw = _parse_file_to_rows(tc_file)
         sap_rows_raw = _parse_file_to_rows(sap_file)
-        logger.info(f"[read] Rows -> TC: {len(tc_rows_raw)} | SAP: {len(sap_rows_raw)}")
+        logger.info(f"[read] Rows -> {SOURCE_BOM_LABEL}: {len(tc_rows_raw)} | {TARGET_BOM_LABEL}: {len(sap_rows_raw)}")
 
-        # --- skipped columns (mapping vs actual)
+        # --- skipped columns (mapping vs actual); column names resolved case-insensitively
         tc_cols = set(tc_rows_raw[0].keys()) if tc_rows_raw else set()
         sap_cols = set(sap_rows_raw[0].keys()) if sap_rows_raw else set()
-        mapped_tc = {m["tc"] for m in pairs}
-        mapped_sap = {m["sap"] for m in pairs}
+        tc_lookup = _col_lookup(tc_cols)
+        sap_lookup = _col_lookup(sap_cols)
+        mapped_tc_lower = {m["tc"].lower() for m in pairs}
+        mapped_sap_lower = {m["sap"].lower() for m in pairs}
+        tc_cols_lower = set(tc_lookup.keys())
+        sap_cols_lower = set(sap_lookup.keys())
         skipped_columns = {
-            "missing_in_tc": [f"TC_{c}" for c in sorted(mapped_tc - tc_cols)],
-            "missing_in_sap": [f"SAP_{c}" for c in sorted(mapped_sap - sap_cols)],
-            "extra_in_tc": [f"TC_{c}" for c in sorted(tc_cols - mapped_tc)],
-            "extra_in_sap": [f"SAP_{c}" for c in sorted(sap_cols - mapped_sap)],
+            "missing_in_tc": [f"BOM_A_{c}" for c in sorted(m["tc"] for m in pairs if m["tc"].lower() not in tc_cols_lower)],
+            "missing_in_sap": [f"BOM_B_{c}" for c in sorted(m["sap"] for m in pairs if m["sap"].lower() not in sap_cols_lower)],
+            "extra_in_tc": [f"BOM_A_{c}" for c in sorted(tc_cols) if c.lower() not in mapped_tc_lower],
+            "extra_in_sap": [f"BOM_B_{c}" for c in sorted(sap_cols) if c.lower() not in mapped_sap_lower],
             "message": "Columns not in mapping were ignored. Ask admin to add these mappings to see comparison."
         }
 
         # --- skip rows ONLY if the FIRST key is missing (part/material); keep rows with missing plant/revision
+        def _get(row, col, lookup):  # case-insensitive column lookup for mapper attributes
+            if row is None:
+                return ""
+            actual = lookup.get(str(col).lower(), col) if lookup else col
+            return str(row.get(actual, "")).strip()
+
         skipped_rows = []
-        def keep_tc(r): 
-            ok = not _is_blank(r.get(pk_tc))
+        def keep_tc(r):
+            ok = not _is_blank(_get(r, pk_tc, tc_lookup))
             if not ok:
-                skipped_rows.append({"source": "TC", "reason": f"Missing key field '{pk_tc}'", "row": r})
+                skipped_rows.append({"source": SOURCE_BOM_LABEL, "reason": f"Missing key field '{pk_tc}'", "row": r})
             return ok
         def keep_sap(r):
-            ok = not _is_blank(r.get(pk_sap))
+            ok = not _is_blank(_get(r, pk_sap, sap_lookup))
             if not ok:
-                skipped_rows.append({"source": "SAP", "reason": f"Missing key field '{pk_sap}'", "row": r})
+                skipped_rows.append({"source": TARGET_BOM_LABEL, "reason": f"Missing key field '{pk_sap}'", "row": r})
             return ok
 
         tc_rows = [r for r in tc_rows_raw if keep_tc(r)]
         sap_rows = [r for r in sap_rows_raw if keep_sap(r)]
 
         # --- group by FIRST key (part/material)
-        def _get(row, col): return "" if row is None else str(row.get(col, "")).strip()
         tc_by_part = defaultdict(list)
         sap_by_mat = defaultdict(list)
-        for r in tc_rows: tc_by_part[_get(r, pk_tc)].append(r)
-        for r in sap_rows: sap_by_mat[_get(r, pk_sap)].append(r)
+        for r in tc_rows: tc_by_part[_get(r, pk_tc, tc_lookup)].append(r)
+        for r in sap_rows: sap_by_mat[_get(r, pk_sap, sap_lookup)].append(r)
 
         all_primary = sorted(set(tc_by_part) | set(sap_by_mat))
         columns = _pair_to_cols(key_pairs) + _pair_to_cols(val_pairs) + ["status"]
 
-        def _norm_side(v, side):  # side: "TC" or "SAP"
+        def _norm_side(v, side):  # side: SOURCE_BOM_LABEL or TARGET_BOM_LABEL
             if _is_blank(v):
                 return "N/A in " + side
             s = str(v)
@@ -210,15 +562,15 @@ def compare_bom_v2():
         def make_record(t, s, status):
             rec = {}
             for m in key_pairs + val_pairs:
-                rec[f"TC_{m['tc']}"]  = _norm_side("" if t is None else t.get(m["tc"]), "TC")
-                rec[f"SAP_{m['sap']}"] = _norm_side("" if s is None else s.get(m["sap"]), "SAP")
+                rec[f"BOM_A_{m['tc']}"]  = _norm_side(_get(t, m["tc"], tc_lookup), SOURCE_BOM_LABEL)
+                rec[f"BOM_B_{m['sap']}"] = _norm_side(_get(s, m["sap"], sap_lookup), TARGET_BOM_LABEL)
             rec["status"] = status
             return rec
 
         def values_different(t, s):
             for m in val_pairs:
-                tc_val = _norm_cmp("" if t is None else t.get(m["tc"]))
-                sap_val = _norm_cmp("" if s is None else s.get(m["sap"]))
+                tc_val = _norm_cmp(_get(t, m["tc"], tc_lookup))
+                sap_val = _norm_cmp(_get(s, m["sap"], sap_lookup))
                 if tc_val != sap_val:
                     return True
             return False
@@ -231,10 +583,10 @@ def compare_bom_v2():
         # plant exact match = 10 pts; SAP missing plant but TC has one = 8 pts; both missing = 6
         # revision match = +2; one missing = +1; mismatch = 0
         def score_pair(t, s):
-            p_t = _get(t, plant_tc) if plant_tc else ""
-            p_s = _get(s, plant_sap) if plant_sap else ""
-            r_t = _get(t, rev_tc)   if rev_tc   else ""
-            r_s = _get(s, rev_sap)  if rev_sap  else ""
+            p_t = _get(t, plant_tc, tc_lookup) if plant_tc else ""
+            p_s = _get(s, plant_sap, sap_lookup) if plant_sap else ""
+            r_t = _get(t, rev_tc, tc_lookup)   if rev_tc   else ""
+            r_s = _get(s, rev_sap, sap_lookup)  if rev_sap  else ""
 
             # HARD RULE: if both plants are present and DIFFERENT, do NOT pair this TC/SAP
             if plant_tc and plant_sap and p_t and p_s and p_t != p_s:
@@ -284,46 +636,40 @@ def compare_bom_v2():
                         make_record(t, s, "Different" if isdiff else "Matched")
                     )
                 else:
-                    # no SAP partner found for this TC row
-                    if pk not in sap_by_mat:  # material not present on SAP at all
+                    # no target partner found for this source row
+                    if pk not in sap_by_mat:
                         tc_only.append(make_record(t, None, "TC Only"))
                     else:
-                        # Duplicates:
-                        # - If plant keys exist → plant-level duplicate message (as before)
-                        # - If NO plant key (1-key mode) → generic duplicate message
                         if plant_tc and plant_sap:
                             duplicates_tc_msgs.append(
-                                f'In TC BOM "part number" "{_get(t, pk_tc)}" with "plant" "{_get(t, plant_tc)}" '
-                                + (f'and "revision" "{_get(t, rev_tc)}" ' if rev_tc else "")
-                                + "are skipped because no matching Plant Code was found in SAP for these keys."
+                                f'In {SOURCE_BOM_LABEL} "part number" "{_get(t, pk_tc, tc_lookup)}" with "plant" "{_get(t, plant_tc, tc_lookup)}" '
+                                + (f'and "revision" "{_get(t, rev_tc, tc_lookup)}" ' if rev_tc else "")
+                                + f"are skipped because no matching key was found in {TARGET_BOM_LABEL} for these keys."
                             )
                             duplicates_tc_rows.append(t)
                         else:
                             duplicates_tc_msgs.append(
-                                f'Extra TC row for part number "{_get(t, pk_tc)}" was ignored (one-to-one pairing on primary key).'
+                                f'Extra {SOURCE_BOM_LABEL} row for part number "{_get(t, pk_tc, tc_lookup)}" was ignored (one-to-one pairing on primary key).'
                             )
                             duplicates_tc_rows.append(t)
 
-            # any SAP row left unmatched?
+            # any BOM B row left unmatched?
             for j, s in enumerate(s_list):
                 if j in used_s:
                     continue
                 if pk not in tc_by_part:
                     sap_only.append(make_record(None, s, "SAP Only"))
                 else:
-                    # Duplicates:
-                    # - If plant keys exist → plant-level duplicate message (as before)
-                    # - If NO plant key (1-key mode) → generic duplicate message
                     if plant_tc and plant_sap:
                         duplicates_sap_msgs.append(
-                            f'In SAP BOM "material number" "{_get(s, pk_sap)}" with "plant code" "{_get(s, plant_sap)}" '
-                            + (f'and "revision level" "{_get(s, rev_sap)}" ' if rev_sap else "")
-                            + "are skipped because no matching Plant was found in TC for these keys."
+                            f'In {TARGET_BOM_LABEL} "material number" "{_get(s, pk_sap, sap_lookup)}" with "plant code" "{_get(s, plant_sap, sap_lookup)}" '
+                            + (f'and "revision level" "{_get(s, rev_sap, sap_lookup)}" ' if rev_sap else "")
+                            + f"are skipped because no matching key was found in {SOURCE_BOM_LABEL} for these keys."
                         )
                         duplicates_sap_rows.append(s)
                     else:
                         duplicates_sap_msgs.append(
-                            f'Extra SAP row for material number "{_get(s, pk_sap)}" was ignored (one-to-one pairing on primary key).'
+                            f'Extra {TARGET_BOM_LABEL} row for material number "{_get(s, pk_sap, sap_lookup)}" was ignored (one-to-one pairing on primary key).'
                         )
                         duplicates_sap_rows.append(s)
 
@@ -338,7 +684,7 @@ def compare_bom_v2():
                 "count": skipped_columns_count,
                 "extra_in_tc": skipped_columns.get("extra_in_tc", []),
                 "extra_in_sap": skipped_columns.get("extra_in_sap", []),
-                "message": "Columns extra_tc_col and extra_sap_col are skipped because these columns are not found in the mapping file. Ask admin to add these mappings to see comparison."
+                "message": "Columns not in mapping were ignored. Ask admin to add these mappings to see comparison."
             },
             "duplicates": {
                 "count": duplicate_rows_count,
@@ -351,8 +697,8 @@ def compare_bom_v2():
             "skipped_rows": {
                 "count": skipped_rows_count,
                 "by_source": {
-                    "TC": sum(1 for r in skipped_rows if r["source"] == "TC"),
-                    "SAP": sum(1 for r in skipped_rows if r["source"] == "SAP"),
+                    SOURCE_BOM_LABEL: sum(1 for r in skipped_rows if r["source"] == SOURCE_BOM_LABEL),
+                    TARGET_BOM_LABEL: sum(1 for r in skipped_rows if r["source"] == TARGET_BOM_LABEL),
                 }
             }
         }
@@ -380,89 +726,71 @@ def compare_bom_v2():
     except Exception as e:
         logger.exception("[error] %s", e)
         return jsonify({"message": str(e), "logFilename": log_filename}), 400
-    
-users_data = [
-  { 'id': 1, 'username': 'deepali.k1', 'email': 'deepali.k1@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 2, 'username': 'arun.shah', 'email': 'arun.shah@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 3, 'username': 'neha.verma', 'email': 'neha.verma@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 4, 'username': 'rahul.rai', 'email': 'rahul.rai@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 5, 'username': 'priya.d', 'email': 'priya.d@example.com', 'role': 'admin', 'status': 'Inactive' },
-  { 'id': 6, 'username': 'kiran.m', 'email': 'kiran.m@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 7, 'username': 'amit.k', 'email': 'amit.k@example.com', 'role': 'admin', 'status': 'Inactive' },
-  { 'id': 8, 'username': 'sneha.r', 'email': 'sneha.r@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 9, 'username': 'vivek.g', 'email': 'vivek.g@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 10, 'username': 'pooja.s', 'email': 'pooja.s@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 11, 'username': 'ankit.p', 'email': 'ankit.p@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 12, 'username': 'rani.j', 'email': 'rani.j@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 13, 'username': 'nilesh.k', 'email': 'nilesh.k@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 14, 'username': 'tanya.b', 'email': 'tanya.b@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 15, 'username': 'alok.y', 'email': 'alok.y@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 16, 'username': 'manoj.k', 'email': 'manoj.k@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 17, 'username': 'geeta.v', 'email': 'geeta.v@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 18, 'username': 'meena.r', 'email': 'meena.r@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 19, 'username': 'rohit.s', 'email': 'rohit.s@example.com', 'role': 'admin', 'status': 'Inactive' },
-  { 'id': 20, 'username': 'jyoti.n', 'email': 'jyoti.n@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 21, 'username': 'sachin.b', 'email': 'sachin.b@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 22, 'username': 'rekha.d', 'email': 'rekha.d@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 23, 'username': 'suresh.m', 'email': 'suresh.m@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 24, 'username': 'lata.s', 'email': 'lata.s@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 25, 'username': 'tarun.k', 'email': 'tarun.k@example.com', 'role': 'admin', 'status': 'Inactive' },
-  { 'id': 26, 'username': 'shruti.p', 'email': 'shruti.p@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 27, 'username': 'vijay.r', 'email': 'vijay.r@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 28, 'username': 'kamal.n', 'email': 'kamal.n@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 29, 'username': 'nikita.t', 'email': 'nikita.t@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 30, 'username': 'yogesh.k', 'email': 'yogesh.k@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 31, 'username': 'anita.j', 'email': 'anita.j@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 32, 'username': 'parth.s', 'email': 'parth.s@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 33, 'username': 'sanjay.v', 'email': 'sanjay.v@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 34, 'username': 'seema.m', 'email': 'seema.m@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 35, 'username': 'ishan.d', 'email': 'ishan.d@example.com', 'role': 'admin', 'status': 'Inactive' },
-  { 'id': 36, 'username': 'divya.r', 'email': 'divya.r@example.com', 'role': 'user', 'status': 'Active' },
-  { 'id': 37, 'username': 'rakesh.t', 'email': 'rakesh.t@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 38, 'username': 'nidhi.p', 'email': 'nidhi.p@example.com', 'role': 'user', 'status': 'Inactive' },
-  { 'id': 39, 'username': 'amit.j', 'email': 'amit.j@example.com', 'role': 'admin', 'status': 'Active' },
-  { 'id': 40, 'username': 'sonali.k', 'email': 'sonali.k@example.com', 'role': 'user', 'status': 'Active' },
-  { "id": 41, "username": "alice", "email": "alice@example.com", "role": "admin", "status": "Active" },
-  { "id": 42, "username": "bob", "email": "bob@example.com", "role": "user", "status": "Active" },
-  { "id": 43, "username": "carol", "email": "carol@example.com", "role": "user", "status": "Inactive" },
-  { "id": 44, "username": "dave", "email": "dave@example.com", "role": "admin", "status": "Active" },
-  { "id": 45, "username": "eve", "email": "eve@example.com", "role": "user", "status": "Active" },
-  { "id": 46, "username": "frank", "email": "frank@example.com", "role": "user", "status": "Inactive" },
-  { "id": 47, "username": "grace", "email": "grace@example.com", "role": "admin", "status": "Active" },
-  { "id": 48, "username": "heidi", "email": "heidi@example.com", "role": "user", "status": "Active" },
-  { "id": 49, "username": "ivan", "email": "ivan@example.com", "role": "user", "status": "Inactive" },
-  { "id": 50, "username": "judy", "email": "judy@example.com", "role": "admin", "status": "Active" },
-  { "id": 51, "username": "kate", "email": "kate@example.com", "role": "user", "status": "Active" },
-  { "id": 52, "username": "leo", "email": "leo@example.com", "role": "user", "status": "Inactive" },
-  { "id": 53, "username": "maya", "email": "maya@example.com", "role": "admin", "status": "Active" },
-  { "id": 54, "username": "nick", "email": "nick@example.com", "role": "user", "status": "Active" },
-  { "id": 55, "username": "olivia", "email": "olivia@example.com", "role": "user", "status": "Inactive" },
-  { "id": 56, "username": "peter", "email": "peter@example.com", "role": "admin", "status": "Active" },
-  { "id": 57, "username": "quinn", "email": "quinn@example.com", "role": "user", "status": "Active" },
-  { "id": 58, "username": "rachel", "email": "rachel@example.com", "role": "user", "status": "Inactive" },
-  { "id": 59, "username": "sam", "email": "sam@example.com", "role": "admin", "status": "Active" },
-  { "id": 60, "username": "tina", "email": "tina@example.com", "role": "user", "status": "Active" },
-  { "id": 61, "username": "umar", "email": "umar@example.com", "role": "user", "status": "Inactive" },
-  { "id": 62, "username": "victor", "email": "victor@example.com", "role": "admin", "status": "Active" },
-  { "id": 63, "username": "wendy", "email": "wendy@example.com", "role": "user", "status": "Active" },
-  { "id": 64, "username": "xavier", "email": "xavier@example.com", "role": "user", "status": "Inactive" },
-  { "id": 65, "username": "yasmin", "email": "yasmin@example.com", "role": "admin", "status": "Active" },
-  { "id": 66, "username": "zane", "email": "zane@example.com", "role": "user", "status": "Active" },
-  { "id": 67, "username": "aarav", "email": "aarav@example.com", "role": "user", "status": "Inactive" },
-  { "id": 68, "username": "bella", "email": "bella@example.com", "role": "admin", "status": "Active" },
-  { "id": 69, "username": "chris", "email": "chris@example.com", "role": "user", "status": "Active" },
-  { "id": 70, "username": "diana", "email": "diana@example.com", "role": "user", "status": "Inactive" }
+
+
+# Default mapping for demo (matches samples/bom_a_sample_01.csv and bom_b_sample_01.csv)
+_DEMO_MAPPING = [
+    {"tc": "part number", "sap": "material number", "isKey": True},
+    {"tc": "plant", "sap": "plant code", "isKey": False},
+    {"tc": "revision", "sap": "revision level", "isKey": False},
+    {"tc": "description", "sap": "description", "isKey": False},
+    {"tc": "quantity", "sap": "quantity", "isKey": False},
+    {"tc": "uom", "sap": "base unit", "isKey": False},
+    {"tc": "color", "sap": "color", "isKey": False},
 ]
 
-user_counter = 41
 
-# Configure logging
+# Demo: prefer 1000-line BOM files; fall back to small sample if not present
+_DEMO_FILES = [
+    ("bom_a_1000.csv", "bom_b_1000.csv"),   # 1000 lines each — shipped demo
+    ("bom_a_sample_01.csv", "bom_b_sample_01.csv"),  # fallback small sample
+]
+
+
+@bp.route("/demo", methods=["POST"])
+def run_demo():
+    """Run a comparison using built-in sample files. Returns same shape as /api/compare2."""
+    samples_dir = _get_samples_dir()
+    path_a = path_b = None
+    name_a = name_b = None
+    for na, nb in _DEMO_FILES:
+        pa = os.path.join(samples_dir, na)
+        pb = os.path.join(samples_dir, nb)
+        if os.path.isfile(pa) and os.path.isfile(pb):
+            path_a, path_b = pa, pb
+            name_a, name_b = na, nb
+            break
+    if not path_a or not path_b:
+        return jsonify({
+            "message": "Demo sample files not found. Ensure samples/bom_a_1000.csv and samples/bom_b_1000.csv (or bom_a_sample_01.csv, bom_b_sample_01.csv) exist."
+        }), 404
+    try:
+        with open(path_a, "rb") as fa, open(path_b, "rb") as fb:
+            content_a, content_b = fa.read(), fb.read()
+    except OSError as e:
+        return jsonify({"message": f"Cannot read demo files: {e}"}), 500
+    client = current_app.test_client()
+    rv = client.post(
+        "/api/compare2",
+        data={
+            "bom_a": (io.BytesIO(content_a), name_a),
+            "bom_b": (io.BytesIO(content_b), name_b),
+            "mappings": json.dumps(_DEMO_MAPPING),
+        },
+    )
+    from flask import Response
+    return Response(rv.data, status=rv.status_code, mimetype=rv.content_type)
+
+
+users_data = [
+    {"id": 1, "username": "admin", "email": "admin@example.com", "role": "admin", "status": "Active"},
+    {"id": 2, "username": "alice", "email": "alice@example.com", "role": "user", "status": "Active"},
+    {"id": 3, "username": "bob", "email": "bob@example.com", "role": "user", "status": "Inactive"},
+]
+
+user_counter = 4
+
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    filename='logs/session.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s: %(message)s'
-)
 
 @bp.route('/', methods=['GET'])
 def home():
@@ -508,13 +836,13 @@ def compare_bom():
         logger.addHandler(console_handler)
 
         try:
-            tc_file = request.files.get('tc_bom')
-            sap_file = request.files.get('sap_bom')
+            tc_file = request.files.get('bom_a') or request.files.get('tc_bom')
+            sap_file = request.files.get('bom_b') or request.files.get('sap_bom')
 
-            logger.info("Received files — TC: %s, SAP: %s", tc_file, sap_file)
+            logger.info("Received files — %s: %s, %s: %s", SOURCE_BOM_LABEL, tc_file, TARGET_BOM_LABEL, sap_file)
 
             if not tc_file or not sap_file:
-                return jsonify({"error": "Both TC and SAP BOM files are required"}), 400
+                return jsonify({"error": f"Both {SOURCE_BOM_LABEL} and {TARGET_BOM_LABEL} files are required"}), 400
 
             def parse_file(file):
                 filename = file.filename.lower()
@@ -556,28 +884,36 @@ def compare_bom():
             sap_keys = [m['sap'] for m in mappings if m.get('isKey')]
 
             logger.info("Loaded active mapping: %s", mappings)
-            logger.info("Key fields — TC: %s, SAP: %s", tc_keys, sap_keys)
+            logger.info("Key fields — %s: %s, %s: %s", SOURCE_BOM_LABEL, tc_keys, TARGET_BOM_LABEL, sap_keys)
 
             # Parse files
             tc_df_raw = parse_file(tc_file)
             sap_df_raw = parse_file(sap_file)
 
-            logger.info("Parsed rows — TC: %d, SAP: %d", len(tc_df_raw), len(sap_df_raw))
+            logger.info("Parsed rows — %s: %d, %s: %d", SOURCE_BOM_LABEL, len(tc_df_raw), TARGET_BOM_LABEL, len(sap_df_raw))
 
-            tc_df = tc_df_raw.rename(columns=lambda col: f"TC_{col.strip()}")
-            sap_df = sap_df_raw.rename(columns=lambda col: f"SAP_{col.strip()}")
+            # Case-insensitive column resolution for mapper attributes
+            tc_col_lookup = _col_lookup(tc_df_raw.columns)
+            sap_col_lookup = _col_lookup(sap_df_raw.columns)
+            tc_keys_actual = [tc_col_lookup[k.lower()] for k in tc_keys if k.lower() in tc_col_lookup]
+            sap_keys_actual = [sap_col_lookup[k.lower()] for k in sap_keys if k.lower() in sap_col_lookup]
+            if len(tc_keys_actual) != len(tc_keys) or len(sap_keys_actual) != len(sap_keys):
+                logger.warning("Some key columns missing in file (case-insensitive match); using resolved keys only")
 
-            tc_df['__key__'] = tc_df_raw[tc_keys].astype(str).agg('|'.join, axis=1)
-            sap_df['__key__'] = sap_df_raw[sap_keys].astype(str).agg('|'.join, axis=1)
-            
+            tc_df = tc_df_raw.rename(columns=lambda col: f"BOM_A_{col.strip()}")
+            sap_df = sap_df_raw.rename(columns=lambda col: f"BOM_B_{col.strip()}")
+
+            tc_df['__key__'] = tc_df_raw[tc_keys_actual].astype(str).agg('|'.join, axis=1) if tc_keys_actual else ""
+            sap_df['__key__'] = sap_df_raw[sap_keys_actual].astype(str).agg('|'.join, axis=1) if sap_keys_actual else ""
+
             # ---- [Optional Fields Missing Detection] ----
-            # Detect optional (non-key) fields missing from TC and SAP BOMs
-            def detect_optional_missing(df, mappings, side):
-                available = set(df.columns)
-                return [m[side] for m in mappings if m[side] not in available]
+            # Detect optional (non-key) fields missing from TC and SAP BOMs (case-insensitive)
+            def detect_optional_missing(df, mappings, side, col_lookup):
+                available_lower = set(col_lookup.keys())
+                return [m[side] for m in mappings if m[side].lower() not in available_lower]
 
-            missing_optional_tc = detect_optional_missing(tc_df_raw, mappings, 'tc')
-            missing_optional_sap = detect_optional_missing(sap_df_raw, mappings, 'sap')
+            missing_optional_tc = detect_optional_missing(tc_df_raw, mappings, 'tc', tc_col_lookup)
+            missing_optional_sap = detect_optional_missing(sap_df_raw, mappings, 'sap', sap_col_lookup)
 
             # Add to missing_mappings list and log it
             missing_mappings = []
@@ -587,40 +923,41 @@ def compare_bom():
                     "tc_missing": missing_optional_tc,
                     "sap_missing": missing_optional_sap
                 })
-            logger.warning("Optional columns missing — TC: %s, SAP: %s", missing_optional_tc, missing_optional_sap)
+            logger.warning("Optional columns missing — %s: %s, %s: %s", SOURCE_BOM_LABEL, missing_optional_tc, TARGET_BOM_LABEL, missing_optional_sap)
 
             skipped_rows = []
-            def extract_missing_keys(row, expected_keys):
+            def extract_missing_keys(row, expected_keys, col_lookup):
                 missing = []
                 for k in expected_keys:
-                    if k not in row or str(row[k]).strip() == '':
+                    actual = col_lookup.get(k.lower(), k)
+                    if actual not in row or str(row.get(actual, '')).strip() == '':
                         missing.append(k)
                 return missing
 
             tc_dict = {}
             for idx, row in tc_df_raw.iterrows():
-                missing_keys = extract_missing_keys(row, tc_keys)
+                missing_keys = extract_missing_keys(row, tc_keys, tc_col_lookup)
                 if missing_keys:
                     skipped_rows.append({
-                        "source": "TC",
+                        "source": SOURCE_BOM_LABEL,
                         "reason": f"Missing or blank key fields: {missing_keys}",
                         "row": row.to_dict()
                     })
                     continue
-                key = '|'.join([str(row[k]).strip() for k in tc_keys])
+                key = '|'.join([str(row.get(actual, '')).strip() for actual in tc_keys_actual])
                 tc_dict[key] = tc_df.iloc[idx].to_dict()
 
             sap_dict = {}
             for idx, row in sap_df_raw.iterrows():
-                missing_keys = extract_missing_keys(row, sap_keys)
+                missing_keys = extract_missing_keys(row, sap_keys, sap_col_lookup)
                 if missing_keys:
                     skipped_rows.append({
-                        "source": "SAP",
+                        "source": TARGET_BOM_LABEL,
                         "reason": f"Missing or blank key fields: {missing_keys}",
                         "row": row.to_dict()
                     })
                     continue
-                key = '|'.join([str(row[k]).strip() for k in sap_keys])
+                key = '|'.join([str(row.get(actual, '')).strip() for actual in sap_keys_actual])
                 sap_dict[key] = sap_df.iloc[idx].to_dict()
 
             matched, different, tc_only, sap_only = [], [], [], []
@@ -643,7 +980,7 @@ def compare_bom():
 
                     for field in all_fields:
                         tc_val = tc_row.get(field, '')
-                        sap_field = field.replace("TC_", "SAP_")
+                        sap_field = field.replace("BOM_A_", "BOM_B_")
                         sap_val = sap_row.get(sap_field, '')
 
                         row[field] = tc_val if pd.notna(tc_val) else 'N/A'
@@ -658,21 +995,21 @@ def compare_bom():
                 elif tc_row:
                     row = {**tc_row}
                     for field in list(row):
-                        if field.startswith('TC_'):
-                            row[field.replace('TC_', 'SAP_')] = 'N/A'
+                        if field.startswith('BOM_A_'):
+                            row[field.replace('BOM_A_', 'BOM_B_')] = 'N/A'
                     row['status'] = 'TC Only'
                     tc_only.append(row)
 
                 elif sap_row:
                     row = {**sap_row}
                     for field in list(row):
-                        if field.startswith('SAP_'):
-                            row[field.replace('SAP_', 'TC_')] = 'N/A'
+                        if field.startswith('BOM_B_'):
+                            row[field.replace('BOM_B_', 'BOM_A_')] = 'N/A'
                     row['status'] = 'SAP Only'
                     sap_only.append(row)
 
-            logger.info("Comparison completed: Matched=%d, Different=%d, TC Only=%d, SAP Only=%d",
-                        len(matched), len(different), len(tc_only), len(sap_only))
+            logger.info("Comparison completed: Matched=%d, Different=%d, %s only=%d, %s only=%d",
+                        len(matched), len(different), SOURCE_BOM_LABEL, len(tc_only), TARGET_BOM_LABEL, len(sap_only))
             # Log skipped rows if any
             if skipped_rows:
                 logger.warning("Skipped rows during comparison:")
@@ -764,6 +1101,9 @@ def download_log(filename):
 
 @bp.route('/save-mapping', methods=['POST'])
 def save_mapping():
+    err = _require_paid()
+    if err is not None:
+        return err
     try:
         data = request.get_json()
         mode = data.get('mode')
@@ -776,11 +1116,6 @@ def save_mapping():
         filename = f"{mode}_mapping_{timestamp}.json"
         mapping_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'mappings')
         os.makedirs(mapping_dir, exist_ok=True)
-        
-        # ✅ Check if there are already 10 files
-        existing_files = [f for f in os.listdir(mapping_dir) if f.endswith('.json')]
-        if len(existing_files) >= 10:
-            return jsonify({"error": "Mapping limit reached. Maximum 10 mappings allowed."}), 400
 
         existing_files = [f for f in os.listdir(mapping_dir) if f.endswith('.json')]
         is_first_mapping = len(existing_files) == 0
@@ -805,6 +1140,9 @@ def save_mapping():
     
 @bp.route('/update-mapping', methods=['POST'])
 def update_mapping():
+    err = _require_paid()
+    if err is not None:
+        return err
     try:
         data = request.get_json()
         old_filename = data.get('old_filename')
@@ -853,6 +1191,7 @@ def list_mappings():
     try:
         mapping_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'mappings')
         os.makedirs(mapping_dir, exist_ok=True)
+        _seed_default_mapping_presets(mapping_dir)
 
         files = []
         for fname in os.listdir(mapping_dir):
@@ -891,6 +1230,9 @@ def load_mapping_file(filename):
 
 @bp.route('/mapping/<filename>', methods=['DELETE'])
 def delete_mapping_file(filename):
+    err = _require_paid()
+    if err is not None:
+        return err
     try:
         mapping_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'mappings')
         file_path = os.path.join(mapping_dir, filename)
@@ -913,6 +1255,9 @@ def delete_mapping_file(filename):
 
 @bp.route('/mapping/status/<filename>', methods=['POST'])
 def update_mapping_status(filename):
+    err = _require_paid()
+    if err is not None:
+        return err
     try:
         data = request.get_json()
         new_status = data.get("status")
@@ -969,6 +1314,9 @@ def update_mapping_status(filename):
 
 @bp.route('/rename-mapping', methods=['POST'])
 def rename_mapping_file():
+    err = _require_paid()
+    if err is not None:
+        return err
     try:
         data = request.get_json()
         old_name = data.get('old_name')

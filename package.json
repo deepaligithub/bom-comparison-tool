@@ -1,0 +1,13 @@
+{
+  "name": "bom-compare-tool-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Root workspace for BOM Compare Tool (scripts only)",
+  "scripts": {
+    "generate-docs-pdf": "node scripts/generate-docs-pdf.js"
+  },
+  "devDependencies": {
+    "md-to-pdf": "^5.2.5",
+    "puppeteer": "^21.0.0"
+  }
+}

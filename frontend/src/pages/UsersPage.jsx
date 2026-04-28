@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import { Link } from 'react-router-dom';
+import apiClient from '../api/client';
 import Swal from 'sweetalert2';
-import { FaEdit, FaTrash, FaSort, FaUserShield, FaEye, FaSearch } from 'react-icons/fa';
+import { FaEdit, FaTrash, FaSort, FaUserShield, FaEye, FaSearch, FaArrowLeft } from 'react-icons/fa';
 import EditUserModal from '../components/EditUserModal';
 
 
@@ -26,7 +27,7 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await axios.get('/api/users');
+      const res = await apiClient.get('/api/users');
       setUsers(res.data);
     } catch (err) {
       console.error('Failed to fetch users', err);
@@ -98,7 +99,7 @@ export default function UsersPage() {
     }
 
     try {
-      await axios.post('/api/users', form);
+      await apiClient.post('/api/users', form);
       Swal.fire('Added!', 'User added successfully.', 'success');
       fetchUsers();
       resetForm();
@@ -118,7 +119,7 @@ export default function UsersPage() {
 
     if (confirm.isConfirmed) {
       try {
-        await axios.delete(`/api/users/${id}`);
+        await apiClient.delete(`/api/users/${id}`);
         Swal.fire('Deleted!', 'User has been deleted.', 'success');
         fetchUsers();
       } catch (err) {
@@ -131,9 +132,11 @@ export default function UsersPage() {
     setEditModal({ isOpen: true, user });
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (updatedUser) => {
+    const userToSave = updatedUser || editModal.user;
+    if (!userToSave?.id) return;
     try {
-      await axios.put(`/api/users/${editModal.user.id}`, editModal.user);
+      await apiClient.put(`/api/users/${userToSave.id}`, userToSave);
       Swal.fire('Updated!', 'User updated successfully.', 'success');
       setEditModal({ isOpen: false, user: null });
       fetchUsers();
@@ -178,8 +181,7 @@ export default function UsersPage() {
       <button
         key={1}
         onClick={() => setCurrentPage(1)}
-        className={`w-8 h-8 rounded-full text-sm flex items-center justify-center border ${currentPage === 1 ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'
-          }`}
+        className={`w-9 h-9 rounded-xl text-sm font-medium flex items-center justify-center border transition ${currentPage === 1 ? 'bg-teal-600 text-white border-teal-600' : 'border-slate-200 hover:bg-slate-100 text-slate-700'}`}
       >
         1
       </button>
@@ -201,8 +203,7 @@ export default function UsersPage() {
           <button
             key={i}
             onClick={() => setCurrentPage(i)}
-            className={`w-8 h-8 rounded-full text-sm flex items-center justify-center border ${currentPage === i ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'
-              }`}
+            className={`w-9 h-9 rounded-xl text-sm font-medium flex items-center justify-center border transition ${currentPage === i ? 'bg-teal-600 text-white border-teal-600' : 'border-slate-200 hover:bg-slate-100 text-slate-700'}`}
           >
             {i}
           </button>
@@ -225,8 +226,7 @@ export default function UsersPage() {
         <button
           key={totalPages}
           onClick={() => setCurrentPage(totalPages)}
-          className={`w-8 h-8 rounded-full text-sm flex items-center justify-center border ${currentPage === totalPages ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'
-            }`}
+            className={`w-9 h-9 rounded-xl text-sm font-medium flex items-center justify-center border transition ${currentPage === totalPages ? 'bg-teal-600 text-white border-teal-600' : 'border-slate-200 hover:bg-slate-100 text-slate-700'}`}
         >
           {totalPages}
         </button>
@@ -234,11 +234,11 @@ export default function UsersPage() {
     }
 
     return (
-      <div className="flex items-center justify-center gap-2 mt-4">
+      <div className="flex items-center justify-center gap-1 mt-2">
         <button
           onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
           disabled={currentPage === 1}
-          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-blue-600 transition disabled:opacity-30"
+          className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-teal-600 hover:bg-slate-100 transition disabled:opacity-40"
         >
           ‹
         </button>
@@ -246,7 +246,7 @@ export default function UsersPage() {
         <button
           onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
           disabled={currentPage === totalPages}
-          className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-blue-600 transition disabled:opacity-30"
+          className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-teal-600 hover:bg-slate-100 transition disabled:opacity-40"
         >
           ›
         </button>
@@ -255,14 +255,18 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="p-4 space-y-6">
-      <div className="flex flex-col md:flex-row gap-6">
-        <div className="md:w-1/3 bg-white p-4 rounded shadow">
-          <h2 className="text-lg font-semibold mb-2">Add New User</h2>
+    <div className="max-w-6xl mx-auto">
+      <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-teal-600 font-medium text-sm mb-6 transition-colors" aria-label="Back to Home">
+        <FaArrowLeft aria-hidden /> Back to Home
+      </Link>
+      <h1 className="text-2xl font-semibold text-slate-800 tracking-tight mb-8">User management</h1>
+
+      <div className="flex flex-col lg:flex-row gap-8">
+        <div className="lg:w-80 flex-shrink-0 bg-white rounded-2xl border border-slate-200 shadow-lg p-6">
+          <h2 className="text-lg font-semibold text-slate-800 mb-5">Add new user</h2>
           <form onSubmit={handleSubmit} className="space-y-4 text-sm">
-            {/* Username */}
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
                 <FaUserShield />
               </span>
               <input
@@ -270,16 +274,12 @@ export default function UsersPage() {
                 value={form.username}
                 onChange={handleChange}
                 placeholder="Username"
-                className={`w-full pl-10 border px-3 py-2 rounded ${formErrors.username ? 'border-red-500' : 'border-gray-300'}`}
+                className={`w-full pl-10 border px-3 py-2.5 rounded-xl text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 ${formErrors.username ? 'border-red-500' : 'border-slate-200'}`}
               />
-              {formErrors.username && (
-                <p className="text-red-500 text-xs mt-1 ml-1">{formErrors.username}</p>
-              )}
+              {formErrors.username && <p className="text-red-500 text-xs mt-1 ml-1">{formErrors.username}</p>}
             </div>
-
-            {/* Email */}
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
                 <FaEye />
               </span>
               <input
@@ -288,146 +288,106 @@ export default function UsersPage() {
                 value={form.email}
                 onChange={handleChange}
                 placeholder="Email"
-                className={`w-full pl-10 border px-3 py-2 rounded ${formErrors.email ? 'border-red-500' : 'border-gray-300'}`}
+                className={`w-full pl-10 border px-3 py-2.5 rounded-xl text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 ${formErrors.email ? 'border-red-500' : 'border-slate-200'}`}
               />
-              {formErrors.email && (
-                <p className="text-red-500 text-xs mt-1 ml-1">{formErrors.email}</p>
-              )}
+              {formErrors.email && <p className="text-red-500 text-xs mt-1 ml-1">{formErrors.email}</p>}
             </div>
-
-            {/* Role */}
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
                 <FaUserShield />
               </span>
               <select
                 name="role"
                 value={form.role}
                 onChange={handleChange}
-                className={`w-full pl-10 border px-3 py-2 rounded bg-white ${formErrors.role ? 'border-red-500' : 'border-gray-300'}`}
+                className={`w-full pl-10 border px-3 py-2.5 rounded-xl bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 ${formErrors.role ? 'border-red-500' : 'border-slate-200'}`}
               >
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
-              {formErrors.role && (
-                <p className="text-red-500 text-xs mt-1 ml-1">{formErrors.role}</p>
-              )}
+              {formErrors.role && <p className="text-red-500 text-xs mt-1 ml-1">{formErrors.role}</p>}
             </div>
-
-            {/* Status - Readonly */}
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
-                ●
-              </span>
-              <input
-                name="status"
-                value={form.status}
-                readOnly
-                className="w-full pl-10 border px-3 py-2 rounded bg-gray-100 text-gray-500"
-              />
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">●</span>
+              <input name="status" value={form.status} readOnly className="w-full pl-10 border border-slate-200 px-3 py-2.5 rounded-xl bg-slate-50 text-slate-500" />
             </div>
-
-            <div className="flex gap-2">
-              <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
-                Add User
+            <div className="flex gap-2 pt-2">
+              <button type="submit" className="bg-teal-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-teal-700 transition shadow-sm">
+                Add user
               </button>
-              <button type="button" onClick={resetForm} className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300 transition">
+              <button type="button" onClick={resetForm} className="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-xl font-medium hover:bg-slate-200 transition">
                 Reset
               </button>
             </div>
           </form>
         </div>
-        {/* User List Table */}
-        <div className="md:w-2/3 bg-white shadow rounded-lg p-4">
-          <div className="flex justify-between mb-4">
-            <div className="relative w-1/2">
-              <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+
+        <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-4 justify-between">
+            <div className="relative flex-1 max-w-md">
+              <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 placeholder="Search users..."
-                className="w-full pl-10 pr-4 py-2 border rounded focus:outline-none focus:ring"
+                className="w-full pl-11 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1); // reset to page 1 when search
-                }}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               />
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor="perPage" className="text-sm text-gray-700 font-medium">
-                Page size:
-              </label>
-              <select
-                id="perPage"
-                value={perPage}
-                onChange={(e) => {
-                  setPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="border px-2 py-1 rounded text-sm"
-              >
-                {[5, 10, 20, 50].map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
+              <label htmlFor="perPage" className="text-sm font-medium text-slate-600">Per page</label>
+              <select id="perPage" value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setCurrentPage(1); }} className="border border-slate-200 px-3 py-2 rounded-xl text-sm bg-white focus:ring-2 focus:ring-teal-500/20">
+                {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
-
           </div>
 
-          <table className="w-full table-fixed text-left border border-collapse">
-            <thead>
-              <tr className="bg-gray-100">
-                {['username', 'email', 'role', 'status'].map((field) => (
-                  <th
-                    key={field}
-                    className="p-2 border cursor-pointer w-1/4"
-                    onClick={() => handleSort(field)}
-                  >
-                    <div className="flex items-center gap-1">
-                      {field.charAt(0).toUpperCase() + field.slice(1)}
-                      {sortField === field && sortOrder !== 'none' && (
-                        <FaSort className={`transform ${sortOrder === 'desc' ? 'rotate-180' : ''}`} />
-                      )}
-                    </div>
-                  </th>
-                ))}
-                <th className="p-2 border w-1/4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredUsers.length === 0 && (
-                <div className="text-center text-red-500 font-medium my-4">
-                  No users found.
-                </div>
-              )}
-              {paginatedUsers.map((user, idx) => (
-                <tr key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="p-2 border">{user.username}</td>
-                  <td className="p-2 border">{user.email}</td>
-                  <td className="p-2 border">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm ${user.role === 'admin' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>
-                      {user.role === 'admin' ? <FaUserShield /> : <FaEye />} {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                    </span>
-                  </td>
-                  <td className="p-2 border">
-                    <span className={`inline-block w-3 h-3 rounded-full ${user.status === 'Active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                    <span className="ml-2 text-sm">{user.status}</span>
-                  </td>
-                  <td className="p-2 border flex gap-3">
-                    <button onClick={() => handleEdit(user)} className="text-blue-600 hover:text-blue-800">
-                      <FaEdit />
-                    </button>
-                    <button onClick={() => handleDelete(user.id)} className="text-red-600 hover:text-red-800">
-                      <FaTrash />
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  {['username', 'email', 'role', 'status'].map((field) => (
+                    <th key={field} className="px-5 py-3.5 font-semibold text-slate-700 cursor-pointer hover:bg-slate-100 transition" onClick={() => handleSort(field)}>
+                      <div className="flex items-center gap-1">
+                        {field.charAt(0).toUpperCase() + field.slice(1)}
+                        {sortField === field && sortOrder !== 'none' && <FaSort className={`text-slate-400 ${sortOrder === 'desc' ? 'rotate-180' : ''}`} />}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-5 py-3.5 font-semibold text-slate-700 w-24">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Pagination */}
-          <div className="mt-4">{renderPagination()}</div>
+              </thead>
+              <tbody>
+                {filteredUsers.length === 0 && (
+                  <tr><td colSpan={5} className="px-5 py-12 text-center text-slate-500">No users found.</td></tr>
+                )}
+                {paginatedUsers.map((user, idx) => (
+                  <tr key={user.id} className={`border-b border-slate-100 hover:bg-slate-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                    <td className="px-5 py-3 font-medium text-slate-800">{user.username}</td>
+                    <td className="px-5 py-3 text-slate-600">{user.email}</td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${user.role === 'admin' ? 'bg-teal-100 text-teal-800' : 'bg-slate-100 text-slate-700'}`}>
+                        {user.role === 'admin' ? <FaUserShield /> : <FaEye />} {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${user.status === 'Active' ? 'bg-teal-500' : 'bg-red-500'}`} />
+                        <span className="text-slate-600">{user.status}</span>
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => handleEdit(user)} className="p-2.5 rounded-xl text-slate-500 hover:bg-teal-50 hover:text-teal-600 transition" title="Edit"><FaEdit /></button>
+                        <button onClick={() => handleDelete(user.id)} className="p-2.5 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition" title="Delete"><FaTrash /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="p-4 border-t border-slate-100">{renderPagination()}</div>
         </div>
       </div>
 
@@ -437,9 +397,6 @@ export default function UsersPage() {
           user={editModal.user}
           onClose={() => setEditModal({ isOpen: false, user: null })}
           onSave={handleUpdate}
-          setUser={(updated) =>
-            setEditModal((prev) => ({ ...prev, user: { ...prev.user, ...updated } }))
-          }
         />
       )}
 

@@ -4,7 +4,8 @@ import * as XLSX from 'xlsx';
 import { HiOutlineCode, HiOutlineCog } from 'react-icons/hi';
 import Swal from 'sweetalert2';
 import { FaDownload, FaPlus, FaArrowRight, FaPuzzlePiece, FaTrashAlt, FaSave, FaRedo } from 'react-icons/fa';
-import axios from 'axios';
+import apiClient from '../../api/client';
+import { toastSuccess, toastError } from '../../utils/toast';
 
 export default function AddMappingPage() {
     const tcFileRef = useRef();
@@ -111,7 +112,7 @@ export default function AddMappingPage() {
             reader.readAsArrayBuffer(file);
         } else if (file.name.endsWith('.plmxml')) {
             if (type !== 'tc') {
-                Swal.fire('SAP should not be PLMXML', '', 'error');
+                Swal.fire('Target BOM should not be PLMXML', '', 'error');
                 resetAll();
                 return;
             }
@@ -160,7 +161,7 @@ export default function AddMappingPage() {
                         setMappings(newMappings);
                         setTcColumns(columns);
                     } else {
-                        Swal.fire('SAP should not be PLMXML', '', 'error');
+                        Swal.fire('Target BOM should not be PLMXML', '', 'error');
                         resetAll();
                     }
 
@@ -243,8 +244,6 @@ export default function AddMappingPage() {
         const currentKeys = updated.filter(m => m.isKey).length;
         const isCurrentlyKey = updated[index].isKey;
 
-        const tcField = updated[index].tc?.toLowerCase();
-
         if (!isCurrentlyKey && currentKeys >= 3) {
             Swal.fire('Only up to 3 key fields are allowed.', '', 'warning');
             return;
@@ -273,24 +272,14 @@ export default function AddMappingPage() {
 
     const saveMappingsToBackend = async () => {
         try {
-            const res = await axios.get('/api/mappings');
-            if (res.data.length >= 10) {
-                Swal.fire(
-                    'Limit Reached',
-                    'Only 10 mappings are allowed. Please delete an existing one to add a new mapping.',
-                    'warning'
-                );
-                return;
-            }
-            await axios.post('/api/save-mapping', {
+            await apiClient.post('/api/save-mapping', {
                 mode,
                 mappings
             });
-            Swal.fire('Mapping saved to backend!', '', 'success').then(() => {
-                resetAll();  // ✅ Reset the page after success
-            });
+            toastSuccess('Mapping saved');
+            resetAll();
         } catch (error) {
-            Swal.fire('Error saving to backend', '', 'error');
+            toastError('Error saving to backend');
         }
     };
 
@@ -328,38 +317,38 @@ export default function AddMappingPage() {
     const hasValidMappings = mappings.some(m => m.tc && m.sap);
 
     return (
-        <div className="p-6 max-w-5xl mx-auto">
-            <div className="mb-6 flex space-x-2">
+        <div className="max-w-5xl mx-auto">
+            {/* Tabs */}
+            <div className="flex gap-1 p-1 mb-8 rounded-2xl bg-slate-100/80 border border-slate-200/80 w-fit">
                 <button
                     onClick={() => { setMode('ui'); resetAll(); }}
-                    className={`flex items-center px-4 py-2 rounded-t-md text-sm font-semibold transition-colors duration-200 ${mode === 'ui'
-                        ? 'bg-white border-b-2 border-blue-600 text-blue-600 shadow-sm'
-                        : 'bg-gray-100 text-gray-500 hover:text-blue-600 hover:bg-white'
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${mode === 'ui'
+                        ? 'bg-white text-teal-700 shadow-sm border border-slate-200/80'
+                        : 'text-slate-500 hover:text-slate-700'
                         }`}
                 >
-                    <HiOutlineCog className="mr-2" />
+                    <HiOutlineCog className="text-lg" />
                     UI Mapping
                 </button>
-
                 <button
                     onClick={() => { setMode('manual'); resetAll(); }}
-                    className={`flex items-center px-4 py-2 rounded-t-md text-sm font-semibold transition-colors duration-200 ${mode === 'manual'
-                        ? 'bg-white border-b-2 border-blue-600 text-blue-600 shadow-sm'
-                        : 'bg-gray-100 text-gray-500 hover:text-blue-600 hover:bg-white'
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${mode === 'manual'
+                        ? 'bg-white text-teal-700 shadow-sm border border-slate-200/80'
+                        : 'text-slate-500 hover:text-slate-700'
                         }`}
                 >
-                    <HiOutlineCode className="mr-2" />
+                    <HiOutlineCode className="text-lg" />
                     Manual Mapping
                 </button>
             </div>
 
             {mode === 'ui' ? (
-                <div>
-                    <div className="grid sm:grid-cols-2 gap-6 mb-6">
-                        <div className="border border-gray-300 rounded-lg shadow-sm p-4 bg-white">
-                            <h4 className="font-semibold text-gray-700 mb-3">Upload Teamcenter BOM</h4>
-                            <label className="relative inline-block mb-2">
-                                <span className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-3 rounded cursor-pointer">
+                <div className="space-y-8">
+                    <div className="grid sm:grid-cols-2 gap-6">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+                            <h4 className="font-semibold text-slate-800 mb-3">Upload Source BOM (sample)</h4>
+                            <label className="relative inline-block mb-3">
+                                <span className="bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl cursor-pointer transition-colors">
                                     Choose File
                                 </span>
                                 <input
@@ -374,17 +363,17 @@ export default function AddMappingPage() {
                                 />
                             </label>
                             {tcFileName && (
-                                <div className="text-green-600 text-sm font-medium mb-1 truncate flex items-center gap-1">
-                                    ✅ <span className="truncate">{tcFileName}</span>
+                                <div className="text-teal-600 text-sm font-medium mb-1 truncate flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-teal-500" /> <span className="truncate">{tcFileName}</span>
                                 </div>
                             )}
-                            <p className="text-xs text-gray-500">Accepted formats: .csv, .json, .xlsx, .plmxml</p>
+                            <p className="text-xs text-slate-500">Accepted: .csv, .json, .xlsx, .plmxml</p>
                         </div>
 
-                        <div className="border border-gray-300 rounded-lg shadow-sm p-4 bg-white">
-                            <h4 className="font-semibold text-gray-700 mb-3">Upload SAP BOM</h4>
-                            <label className="relative inline-block mb-2">
-                                <span className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-3 rounded cursor-pointer">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
+                            <h4 className="font-semibold text-slate-800 mb-3">Upload Target BOM (sample)</h4>
+                            <label className="relative inline-block mb-3">
+                                <span className="bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl cursor-pointer transition-colors">
                                     Choose File
                                 </span>
                                 <input
@@ -399,25 +388,28 @@ export default function AddMappingPage() {
                                 />
                             </label>
                             {sapFileName && (
-                                <div className="text-green-600 text-sm font-medium mb-1 truncate flex items-center gap-1">
-                                    ✅ <span className="truncate">{sapFileName}</span>
+                                <div className="text-teal-600 text-sm font-medium mb-1 truncate flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-teal-500" /> <span className="truncate">{sapFileName}</span>
                                 </div>
                             )}
-                            <p className="text-xs text-gray-500">Accepted formats: .csv, .json, .xlsx</p>
+                            <p className="text-xs text-slate-500">Accepted: .csv, .json, .xlsx</p>
                         </div>
                     </div>
 
-                    <div className="border p-4 rounded bg-gray-50">
-                        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                            <FaPuzzlePiece className="text-indigo-500" /> Column Mappings
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                            <FaPuzzlePiece className="text-teal-500" /> Column Mappings
                         </h3>
-                        {/* 🔑 Key Summary */}
-                        <div className="text-sm text-gray-600 mb-3">
-                            <span className="font-semibold text-gray-800">Selected Key Fields:</span>{' '}
-                            {mappings
-                                .filter(m => m.isKey)
-                                .map(m => m.tc)
-                                .join(', ') || 'None selected'}
+                        <div className="text-sm text-slate-700 bg-teal-50/80 border border-teal-100 rounded-xl p-4 mb-4">
+                            <p className="font-semibold text-slate-800 mb-2">Key vs non-key</p>
+                            <ul className="space-y-1 text-slate-600">
+                                <li><strong>Key</strong> — Columns used to <em>match rows</em> (e.g. same part). At least one; up to 3 for composite keys.</li>
+                                <li><strong>Non-key</strong> — Columns <em>compared and shown</em> after matching (e.g. Description, Qty).</li>
+                            </ul>
+                        </div>
+                        <div className="text-sm text-slate-600 mb-4">
+                            <span className="font-semibold text-slate-800">Selected key fields:</span>{' '}
+                            {mappings.filter(m => m.isKey).map(m => m.tc).join(', ') || 'None'}
                         </div>
                         {mappings.map((map, idx) => {
                             const selectedTc = mappings.map(m => m.tc).filter((v, i) => v && i !== idx);
@@ -429,88 +421,71 @@ export default function AddMappingPage() {
                                     <select
                                         value={map.tc}
                                         onChange={e => handleMappingChange(idx, 'tc', e.target.value)}
-                                        className="border border-gray-300 rounded px-3 py-1 w-1/3"
+                                        className="border border-slate-200 rounded-xl px-3 py-2 w-1/3 text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                                     >
-                                        <option value="">Select TC Column</option>
+                                        <option value="">Select BOM A Column</option>
                                         {availableTc.map(col => (
                                             <option key={col} value={col}>{col}</option>
                                         ))}
                                     </select>
-
-                                    <span className="text-gray-500 text-xl"><FaArrowRight /></span>
-
+                                    <span className="text-slate-400"><FaArrowRight /></span>
                                     <select
                                         value={map.sap}
                                         onChange={e => handleMappingChange(idx, 'sap', e.target.value)}
-                                        className="border border-gray-300 rounded px-3 py-1 w-1/3"
+                                        className="border border-slate-200 rounded-xl px-3 py-2 w-1/3 text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                                     >
-                                        <option value="">Select SAP Column</option>
+                                        <option value="">Select Target BOM Column</option>
                                         {availableSap.map(col => (
                                             <option key={col} value={col}>{col}</option>
                                         ))}
                                     </select>
-
-                                    <label className="flex items-center gap-1 text-sm">
-                                        <input
-                                            type="checkbox"
-                                            checked={map.isKey || false}
-                                            onChange={() => toggleIsKey(idx)}
-                                        />
-                                        <span className="text-gray-600">Use as Key</span>
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer" title="Key = match rows">
+                                        <input type="checkbox" checked={map.isKey || false} onChange={() => toggleIsKey(idx)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                                        <span className="text-slate-600">Use as Key</span>
                                     </label>
-
-                                    <button onClick={() => removeMappingRow(idx)} className="text-red-500 hover:text-red-700 text-xl">
+                                    <button onClick={() => removeMappingRow(idx)} className="p-2 rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors">
                                         <FaTrashAlt />
                                     </button>
                                 </div>
                             );
                         })}
-
                         <button
                             onClick={addMappingRow}
                             disabled={!canAddRow}
-                            className={`mt-2 px-4 py-2 text-sm font-semibold rounded flex items-center gap-2 ${canAddRow
-                                ? 'text-blue-600 hover:underline'
-                                : 'text-gray-400 cursor-not-allowed'
-                                }`}
+                            className={`mt-3 px-4 py-2 text-sm font-semibold rounded-xl flex items-center gap-2 transition-colors ${canAddRow ? 'text-teal-600 hover:bg-teal-50' : 'text-slate-400 cursor-not-allowed'}`}
                         >
-                            <FaPlus /> Add Mapping Row
+                            <FaPlus /> Add row
                         </button>
                     </div>
 
-                    <div className="mt-6 flex gap-4">
-                        <button onClick={handleSave}
-                            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded shadow flex items-center gap-2">
+                    <div className="flex gap-3">
+                        <button onClick={handleSave} className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2.5 rounded-xl font-medium shadow-md hover:shadow-lg transition-all flex items-center gap-2">
                             <FaSave /> Save Mapping
                         </button>
-                        <button
-                            onClick={resetAll}
-                            className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded shadow flex items-center gap-2">
+                        <button onClick={resetAll} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-xl font-medium flex items-center gap-2">
                             <FaRedo /> Reset
                         </button>
                     </div>
                 </div>
             ) : (
-                <div>
-                    <h2 className="text-xl font-bold mb-4">Admin Column Mapping</h2>
-                    <div className="flex items-center gap-2 mb-1">
-                        <label className="block font-semibold">Enter Mappings:</label>
-                        <div className="relative inline-block group">
-                            <span className="text-blue-600 font-bold cursor-pointer text-sm">ℹ️</span>
-                            <div className="absolute z-10 w-72 p-3 text-sm text-gray-800 bg-white border border-gray-300 rounded shadow-md opacity-0 group-hover:opacity-100 group-hover:visible invisible transition-opacity duration-200 left-4 top-6">
-                                <p className="mb-1 font-semibold text-gray-700">Supported formats:</p>
-                                <ul className="list-disc list-inside space-y-1">
-                                    <li><code>{'part number -> material id'}</code></li>
-                                    <li><code>part number,material id</code></li>
-                                    <li><code>"part number","material id"</code></li>
-                                    <li>Paste from Excel (tabs auto-convert to commas)</li>
-                                    <li>Select up to 3 key fields to be used as composite keys for comparison.</li>
+                <div className="space-y-6">
+                    <h2 className="text-xl font-bold text-slate-800">Manual column mapping</h2>
+                    <div className="flex items-center gap-2 mb-2">
+                        <label className="font-semibold text-slate-700">Enter mappings</label>
+                        <div className="relative group">
+                            <span className="text-teal-600 cursor-help text-sm">ℹ️</span>
+                            <div className="absolute z-10 w-72 p-3 text-sm text-slate-700 bg-white border border-slate-200 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity left-4 top-6">
+                                <p className="font-semibold mb-1">Formats:</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                    <li><code className="text-xs">{'part -> material_id'}</code></li>
+                                    <li><code className="text-xs">part,material_id</code></li>
+                                    <li>Paste from Excel (tabs → commas). Up to 3 key fields.</li>
                                 </ul>
                             </div>
                         </div>
                     </div>
-                    <div className="border p-2 bg-gray-100 rounded-t font-mono text-sm">
-                        Syntax: tc column → sap column
+                    <div className="rounded-t-xl border border-slate-200 bg-slate-50 px-4 py-2 font-mono text-sm text-slate-600">
+                        Source BOM column → Target BOM column
                     </div>
                     <textarea
                         rows={8}
@@ -519,94 +494,54 @@ export default function AddMappingPage() {
                         onPaste={(e) => {
                             e.preventDefault();
                             const text = e.clipboardData.getData('text/plain');
-                            const formatted = text
-                                .split('\n')
-                                .map(line =>
-                                    line
-                                        .replace(/\t/g, ',')
-                                        .split(',')
-                                        .map(part => part.trim())
-                                        .join(',')
-                                )
-                                .join('\n');
-                            const newValue = manualInput ? `${manualInput}\n${formatted}` : formatted;
-                            setManualInput(newValue);
+                            const formatted = text.split('\n').map(line => line.replace(/\t/g, ',').split(',').map(part => part.trim()).join(',')).join('\n');
+                            setManualInput(manualInput ? `${manualInput}\n${formatted}` : formatted);
                         }}
                         placeholder="part_id -> material_number"
-                        className="w-full border p-2 rounded-b resize-y font-mono text-sm placeholder:text-gray-400"
+                        className="w-full border border-t-0 border-slate-200 rounded-b-xl p-4 resize-y font-mono text-sm placeholder:text-slate-400 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
                     />
 
-                    <div className="flex gap-4 mb-4 mt-2">
-                        <button
-                            onClick={parseManualMappings}
-                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                        >
-                            Parse Manual Mapping
+                    <div className="flex flex-wrap gap-3">
+                        <button onClick={parseManualMappings} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors">
+                            Parse
                         </button>
-                        <button
-                            onClick={downloadManualMap}
-                            disabled={!hasValidMappings}
-                            className={`px-4 py-2 rounded flex items-center gap-2 ${hasValidMappings
-                                ? 'bg-gray-500 hover:bg-gray-600 text-white'
-                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                }`}
-                        >
-                            <FaDownload /> Download Mapping
+                        <button onClick={downloadManualMap} disabled={!hasValidMappings} className={`px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors ${hasValidMappings ? 'bg-slate-700 hover:bg-slate-800 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                            <FaDownload /> Download
                         </button>
-                        <button
-                            onClick={saveMappingsToBackend}
-                            disabled={!hasValidMappings}
-                            className={`px-4 py-2 rounded flex items-center gap-2 ${hasValidMappings
-                                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                }`}
-                        >
-                            <FaSave /> Save Mapping
+                        <button onClick={saveMappingsToBackend} disabled={!hasValidMappings} className={`px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors ${hasValidMappings ? 'bg-teal-600 hover:bg-teal-700 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                            <FaSave /> Save
                         </button>
-                        <button
-                            onClick={() => { setManualInput(''); setMappings([]); }}
-                            className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded flex items-center gap-2"
-                        >
+                        <button onClick={() => { setManualInput(''); setMappings([]); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-medium">
                             <FaRedo /> Reset
                         </button>
                     </div>
 
                     {mappings.length > 0 && (
-                        <div className="border p-4 rounded bg-gray-50 text-sm">
-                            <h4 className="font-semibold mb-3">Parsed Mappings (select key fields):</h4>
-                            <table className="w-full text-sm border">
-                                <thead className="bg-gray-200 text-left">
-                                    <tr>
-                                        <th className="px-3 py-1 border">TC Column</th>
-                                        <th className="px-3 py-1 border">SAP Column</th>
-                                        <th className="px-3 py-1 border text-center">Is Key</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {mappings.map((m, idx) => (
-                                        <tr key={idx}>
-                                            <td className="px-3 py-1 border">{m.tc}</td>
-                                            <td className="px-3 py-1 border">{m.sap}</td>
-                                            <td className="px-3 py-1 border text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={m.isKey || false}
-                                                    onChange={() => {
-                                                        const keyCount = mappings.filter(x => x.isKey).length;
-                                                        const newMappings = [...mappings];
-                                                        if (!newMappings[idx].isKey && keyCount >= 3) {
-                                                            Swal.fire('Only up to 3 key fields are allowed.', '', 'warning');
-                                                            return;
-                                                        }
-                                                        newMappings[idx].isKey = !newMappings[idx].isKey;
-                                                        setMappings(newMappings);
-                                                    }}
-                                                />
-                                            </td>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5">
+                            <h4 className="font-semibold text-slate-800 mb-3">Parsed mappings — set key fields</h4>
+                            <p className="text-xs text-slate-600 mb-3">Key = match rows; non-key = compare only.</p>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-100 text-slate-700 font-semibold">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left border-b border-slate-200">Source BOM Column</th>
+                                            <th className="px-4 py-3 text-left border-b border-slate-200">Target BOM Column</th>
+                                            <th className="px-4 py-3 text-center border-b border-slate-200">Key</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {mappings.map((m, idx) => (
+                                            <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-white/50">
+                                                <td className="px-4 py-2.5">{m.tc}</td>
+                                                <td className="px-4 py-2.5">{m.sap}</td>
+                                                <td className="px-4 py-2.5 text-center">
+                                                    <input type="checkbox" checked={m.isKey || false} onChange={() => { const keyCount = mappings.filter(x => x.isKey).length; const newMappings = [...mappings]; if (!newMappings[idx].isKey && keyCount >= 3) { Swal.fire('Only up to 3 key fields are allowed.', '', 'warning'); return; } newMappings[idx].isKey = !newMappings[idx].isKey; setMappings(newMappings); }} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>

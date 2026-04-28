@@ -1,5 +1,6 @@
 import React from 'react';
 import { FiPackage, FiDatabase } from 'react-icons/fi';
+import { SIDE_A, SIDE_B } from '../config/sideConfig';
 
 export default function UploadSection({
   source,
@@ -15,10 +16,9 @@ export default function UploadSection({
     sap: 'orange',
   };
   const labelColor = labelColorMap[source]; // source is 'tc' or 'sap'
-  const title = isTC ? 'Teamcenter BOM' : 'SAP BOM';
-  const hint = isTC
-    ? 'Upload PLMXML / JSON / CSV file'
-    : 'Upload CSV / JSON / XLSX file';
+  const sideMeta = isTC ? SIDE_A : SIDE_B;
+  const title = sideMeta.label; // "Source BOM" / "Target BOM"
+  const hint = sideMeta.description;
   const Icon = isTC ? FiPackage : FiDatabase;
 
   return (

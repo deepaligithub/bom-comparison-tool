@@ -1,8 +1,75 @@
-# Getting Started with Create React App
+# BOM Compare Tool
+
+Compare two Bills of Material (Source BOM ↔ Target BOM) in CSV, Excel, JSON, or PLMXML. Mapping is built from file columns by default; admins can create saved presets in Mapping Manager.
+
+## Quick start
+
+**Windows package (recommended):** If you have a package (e.g. BOMCompareTool-Package or -Delivery), **double-click `BOMCompareTool.exe`**. No install—the app starts and your browser opens. If something goes wrong (e.g. port in use), a **popup message** explains the issue. See **[docs/INSTALLATION.md](docs/INSTALLATION.md)** for details.
+
+**From source:** Double-click **`RUN.bat`** in the project root to install backend and frontend dependencies and start both servers; the app opens at http://localhost:3000. (Requires Python 3.9+ and Node.js on your PATH.)
+
+**Or run manually:**
+
+1. **Backend:** From the `backend` folder, install dependencies and start the API:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python run.py
+   ```
+   Backend runs at [http://localhost:5000](http://localhost:5000).
+
+2. **Frontend:** From the `frontend` folder, install and start the UI:
+   ```bash
+   cd frontend
+   npm install
+   npm start
+   ```
+   App opens at [http://localhost:3000](http://localhost:3000).
+
+3. **Use the app:** Log in (default admin: `admin` / `admin`), upload Source BOM and Target BOM, then click **Validate BOMs**. Results and column mapping (compared vs missing) appear below.
+
+**Documentation:** (sources in `docs/*.md`; run `npm run generate-docs-pdf` to build all as **PDF** in `docs/`)
+
+- **Installation & troubleshooting:** **[docs/INSTALLATION.md](docs/INSTALLATION.md)** – Windows package (exe: click and go; popup on error), run.bat, manual run, production, Electron, port-in-use.
+- **[How to use](docs/HOW_TO_USE.md)** – Login, compare BOMs, filters, export, Mapping Manager.
+- **[Combined Install + Use guide](docs/BOM_Compare_Tool_Install_and_Use_Guide.html)** – Professional guide (HTML; generated as PDF by `generate-docs-pdf`).
+- [docs/FEATURES_FREE_PAID.md](docs/FEATURES_FREE_PAID.md) – Plans and features.
+- [docs/MAPPING.md](docs/MAPPING.md) – Mapping and presets.
+
+**Generate all documentation as PDF** (from project root):
+```powershell
+npm install          # once: installs md-to-pdf, puppeteer
+npm run generate-docs-pdf   # creates docs/*.pdf and docs/BOM_Compare_Tool_Install_and_Use_Guide.pdf
+```
+Then `docs/` contains every guide in PDF format. The upload and delivery packagers run this step automatically and include all PDFs.
+
+**Create packages** (app + all docs in PDF, in the same folder):
+```powershell
+# Upload package (for upload/distribution)
+.\scripts\create-upload-package.ps1                    # folder: BOMCompareTool-Package/
+.\scripts\create-upload-package.ps1 -StandaloneExe      # + BOMCompareTool.exe (no Python required)
+.\scripts\create-upload-package.ps1 -CreateZip         # + zip
+
+# Delivery package (for delivery to end users)
+.\scripts\create-delivery-package.ps1 -StandaloneExe   # include BOMCompareTool.exe
+.\scripts\create-delivery-package.ps1 -CreateZip       # + zip
+
+# Microsoft Store upload package (Electron + .appx)
+.\scripts\create-microsoft-store-package.ps1            # builds app, creates BOMCompareTool-MicrosoftStore/ with .appx + instructions
+```
+See **[docs/MICROSOFT_STORE_UPLOAD_STEPS.md](docs/MICROSOFT_STORE_UPLOAD_STEPS.md)** for Partner Center submission steps.
+
+**Standalone EXE only** (no package folder):
+```powershell
+.\scripts\build-standalone-exe.ps1                     # outputs backend\dist\bom-backend.exe
+.\scripts\build-standalone-exe.ps1 -OutputDir .\Release # copies as BOMCompareTool.exe to Release\
+```
+
+---
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-# Steps to run the project
+# Steps to run the project (detailed)
 -> To run the project you need to install Node.js (LTS version), python.
 -> After installing python you need to set "System Variable" "path" value. Add these 2 variables to "Path" : 
   1) C:\Users\<your-user>\AppData\Local\Programs\Python\Python311\

@@ -1,0 +1,20 @@
+[
+  {
+    "material number": "PN1005",
+    "plant code": "P02",
+    "revision level": "B",
+    "description": "Housing",
+    "quantity": 1,
+    "base unit": "EA",
+    "color": "Gray"
+  },
+  {
+    "material number": "PN1006",
+    "plant code": "P02",
+    "revision level": "B",
+    "description": "Gasket",
+    "quantity": 3,
+    "base unit": "EA",
+    "color": "Black"
+  }
+]

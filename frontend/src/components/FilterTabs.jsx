@@ -6,6 +6,7 @@ import {
   FiPlusCircle
 } from 'react-icons/fi';
 import { BsDatabase } from 'react-icons/bs';
+import { STATUS_DISPLAY_LABELS } from '../config/sideConfig';
 
 const tabStyles = {
   base: 'flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium transition hover:scale-105',
@@ -39,7 +40,7 @@ export default function FilterTabs({ currentFilter, counts, onChange }) {
             }`}
         >
           {iconMap[tab]}
-          {tab}
+          {STATUS_DISPLAY_LABELS[tab] ?? tab}
           <span className="ml-1 bg-white text-gray-800 text-xs px-1.5 py-0.5 rounded-full">
             {counts[tab] || 0}
           </span>

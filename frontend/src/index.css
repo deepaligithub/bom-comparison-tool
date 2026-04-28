@@ -2,9 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Premium admin design tokens */
+:root {
+  --admin-sidebar-bg: #0f172a;
+  --admin-sidebar-border: rgba(148, 163, 184, 0.08);
+  --admin-accent: #0d9488;
+  --admin-accent-hover: #0f766e;
+  --admin-accent-muted: rgba(13, 148, 136, 0.12);
+  --admin-surface: #ffffff;
+  --admin-surface-elevated: #f8fafc;
+  --admin-border: #e2e8f0;
+  --admin-text: #0f172a;
+  --admin-text-muted: #64748b;
+  --admin-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --admin-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --admin-shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.06), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --admin-shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+  --admin-radius: 0.75rem;
+  --admin-radius-lg: 1rem;
+}
+
+/* Enterprise app shell */
 html {
   overflow-y: scroll;
-  /* Reserve space for scrollbar to prevent layout shift */
+}
+body {
+  background-color: #f1f5f9;
+  color: var(--admin-text);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.app-content {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Premium admin card */
+.admin-card {
+  background: var(--admin-surface);
+  border-radius: var(--admin-radius-lg);
+  border: 1px solid var(--admin-border);
+  box-shadow: var(--admin-shadow);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.admin-card:hover {
+  box-shadow: var(--admin-shadow-lg);
+}
+
+/* Premium admin input focus */
+.admin-input:focus {
+  outline: none;
+  border-color: var(--admin-accent);
+  box-shadow: 0 0 0 3px var(--admin-accent-muted);
 }
 
 /* Prevent layout shift from SweetAlert2 popups */

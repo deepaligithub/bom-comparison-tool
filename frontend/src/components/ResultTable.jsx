@@ -5,6 +5,7 @@ import {
 } from 'react-icons/fa';
 import RowDetailModal from './RowDetailModal';
 import Badge from './Badge';
+import { STATUS_DISPLAY_LABELS, SIDE_A, SIDE_B } from '../config/sideConfig';
 
 export default function ResultTable({
     comparisonResults,
@@ -50,8 +51,8 @@ export default function ResultTable({
     const getStatusIcon = (status) => {
         if (status === 'Matched') return <FaCheckCircle className="inline-block mr-1 text-green-600" title="Matched" />;
         if (status === 'Different') return <FaExclamationCircle className="inline-block mr-1 text-red-500" title="Different" />;
-        if (status === 'TC Only') return <FaMinusCircle className="inline-block mr-1 text-blue-500" title="Only in Teamcenter" />;
-        if (status === 'SAP Only') return <FaMinusCircle className="inline-block mr-1 text-yellow-500" title="Only in SAP" />;
+        if (status === 'TC Only') return <FaMinusCircle className="inline-block mr-1 text-blue-500" title="Only in Source BOM" />;
+        if (status === 'SAP Only') return <FaMinusCircle className="inline-block mr-1 text-yellow-500" title="Only in Target BOM" />;
         return null;
     };
 
@@ -74,18 +75,18 @@ export default function ResultTable({
                     mergedColumnKeys.add(tc);
                 }
             } else {
-                // ✅ Different names — show both with TC_ / SAP_ prefixes
+                // ✅ Different names — show both with Source BOM / Target BOM labels
                 if (!mergedColumnKeys.has(tc)) {
                     dynamicColumns.push({
                         key: tc,
-                        label: `TC_${tc}`
+                        label: `${SIDE_A.label} - ${tc}`
                     });
                     mergedColumnKeys.add(tc);
                 }
                 if (!mergedColumnKeys.has(sap)) {
                     dynamicColumns.push({
                         key: sap,
-                        label: `SAP_${sap}`
+                        label: `${SIDE_B.label} - ${sap}`
                     });
                     mergedColumnKeys.add(sap);
                 }
@@ -205,7 +206,7 @@ export default function ResultTable({
                                         <td key={col.key} className="px-4 py-2 whitespace-nowrap">
                                             {col.key === 'status' ? (
                                                 <span className={`font-medium ${getStatusColor(row.status)}`}>
-                                                    {getStatusIcon(row.status)} {row.status}
+                                                    {getStatusIcon(row.status)} {STATUS_DISPLAY_LABELS[row.status] ?? row.status}
                                                 </span>
                                             ) : col.key === 'actions' ? (
                                                 <button
@@ -219,15 +220,15 @@ export default function ResultTable({
                                                 (() => {
                                                     const value = row[col.key];
                                                     const isEmpty = !value || String(value).trim() === '';
-                                                    const isTC = col.label?.startsWith('TC_');
-                                                    const isSAP = col.label?.startsWith('SAP_');
+                                                    const isBomA = col.label?.startsWith(SIDE_A.label);
+                                                    const isBomB = col.label?.startsWith(SIDE_B.label);
 
                                                     if (!isEmpty) return value;
 
-                                                    if (isTC && row.status === 'SAP Only') {
-                                                        return <Badge label="N/A" tooltip="Missing in Teamcenter" type="blue" />;
-                                                    } else if (isSAP && row.status === 'TC Only') {
-                                                        return <Badge label="N/A" tooltip="Missing in SAP" type="orange" />;
+                                                    if (isBomA && row.status === 'SAP Only') {
+                                                        return <Badge label="N/A" tooltip={`Missing in ${SIDE_A.label}`} type="blue" />;
+                                                    } else if (isBomB && row.status === 'TC Only') {
+                                                        return <Badge label="N/A" tooltip={`Missing in ${SIDE_B.label}`} type="orange" />;
                                                     } else {
                                                         return <Badge label="N/A" tooltip="Value not available" type="gray" />;
                                                     }
